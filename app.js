@@ -9,7 +9,7 @@ const deckNameService = require('./services/deckNameService');
 const app = express();
 
 // 连接 MongoDB 并初始化数据
-mongoose.connect('mongodb://root:jlqcr7ww@hs-db-mongodb.ns-xemi33i0.svc:27017', {
+mongoose.connect('mongodb://root:pgjpw7t4@hsdatabase-mongodb.ns-7i3dklve.svc:27017', {
     useNewUrlParser: true,
     useUnifiedTopology: true
 })
