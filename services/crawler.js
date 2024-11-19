@@ -90,42 +90,45 @@ class CrawlerService {
 
     /**
      * 爬取指定rank的卡组数据
-     * @param {string} rank 
+     * @param {string} urlOrRank 
      * @returns {Promise<Array>}
      */
-    async crawlDecksForRank(rank) {
+    async crawlDecksForRank(urlOrRank) {
         try {
-            const response = await axios.get(this.buildUrl(rank));
+            const url = urlOrRank.startsWith('http') ? urlOrRank : this.buildUrl(urlOrRank);
+            const response = await axios.get(url);
             const $ = cheerio.load(response.data);
-            const decks = [];
+            
+            // 从URL中提取rank参数
+            const rankMatch = url.match(/[?&]rank=([^&]+)/);
+            const rank = rankMatch ? rankMatch[1] : urlOrRank;
 
-            $('div[id^="deck_stats-"]').each(async (index, element) => {
+            // 使用 Promise.all 和 map 替代 each
+            const deckElements = $('div[id^="deck_stats-"]').toArray();
+            const decks = await Promise.all(deckElements.map(async (element, index) => {
                 try {
-                    const deckId = $(element).attr('id')?.split('-')[1];
-                    if (!deckId) return;
+                    const $element = $(element);
+                    const deckId = $element.attr('id')?.split('-')[1];
+                    if (!deckId) return null;
                     
-                    const dustText = $(element).find('.dust-bar-inner').text().trim();
+                    const dustText = $element.find('.dust-bar-inner').text().trim();
                     const dust = this.safeParseNumber(dustText);
 
-                    const gamesText = $(element).find('.column.tag').text().trim();
+                    const gamesText = $element.find('.column.tag').text().trim();
                     const winrateMatch = gamesText.match(/^(\d+\.?\d*)/);
                     const gamesMatch = gamesText.match(/Games:\s*(\d+)/);
 
                     const winrate = winrateMatch ? parseFloat(winrateMatch[1]) : 0;
                     const games = gamesMatch ? parseInt(gamesMatch[1]) : 0;
 
-                    // 获取卡牌ID列表和back值
                     const cardInfos = this.extractCardIds($, element);
                     const cards = cardInfos.map(info => {
                         const cardData = cardService.getCardById(info.id);
                         return cardData ? { ...cardData, back: info.back } : null;
                     }).filter(card => card !== null);
 
-                    // 获取英文名和中文名
                     const name = this.extractDeckName($, element);
                     const zhName = await deckNameService.getChineseName(name);
-
-                    // 计算传说卡牌数量
                     const legendaryCardNum = cards.filter(card => card.rarity === 'LEGENDARY').length;
 
                     const deckData = {
@@ -144,16 +147,19 @@ class CrawlerService {
                     };
 
                     if (deckData.deckId && deckData.name && deckData.cards.length > 0) {
-                        decks.push(deckData);
+                        return deckData;
                     }
+                    return null;
                 } catch (error) {
                     console.warn(`处理${rank}中的卡组时出错:`, error);
+                    return null;
                 }
-            });
+            }));
 
-            return decks;
+            // 过滤掉 null 值并返回
+            return decks.filter(deck => deck !== null);
         } catch (error) {
-            console.error(`爬取${rank}数据时出错:`, error);
+            console.error(`爬取数据时出错:`, error);
             throw error;
         }
     }
