@@ -18,15 +18,17 @@ const checkDatabaseLock = async (req, res, next) => {
         try {
             const lock = await DatabaseLock.findOne({});
             if (lock && lock.isUpdating) {
-                // 添加响应头表明数据正在更新
-                res.set('X-Data-Updating', 'true');
-                console.log('数据正在更新中，返回原有数据');
+                console.log(`数据正在更新中，拒绝访问请求: ${req.path}`);
+                return res.status(503).json({
+                    success: false,
+                    message: '数据正在更新中，请稍后访问'
+                });
             }
         } catch (error) {
             console.error('检查数据库锁定状态时出错:', error);
         }
     }
-    next();  // 无论如何都继续处理请求
+    next();
 };
 
 // 在所有路由之前使用中间件
@@ -157,7 +159,7 @@ router.post('/repairDecksData', async (req, res) => {
             rankData: { processed: 0, updated: 0 }
         };
 
-        // 更新 Deck 表
+        // 新 Deck 表
         console.log('开始处理 Deck 表...');
         const decks = await Deck.find({});
         const deckOperations = await Promise.all(decks.map(async deck => {
@@ -464,7 +466,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
                 }
             });
 
-            // 等待当前批次完成
+            // 等待当前批次完
             await Promise.all(batchPromises);
 
             // 4. 每处理完一批次就更新数据库
@@ -699,7 +701,7 @@ router.get('/getRankDetails', async (req, res) => {
             result[rank] = decks;
         }
 
-        // 如果所有rank都没有找到数据
+        // 如���所有rank都没有找到数据
         const totalDecks = Object.values(result).flat().length;
         if (totalDecks === 0) {
             return res.status(404).json({
@@ -717,6 +719,65 @@ router.get('/getRankDetails', async (req, res) => {
         res.status(500).json({
             success: false,
             message: '获取数据失败',
+            error: error.message
+        });
+    }
+});
+
+// 测试定时任务
+router.post('/testScheduledUpdate', async (req, res) => {
+    try {
+        // 检查是否已经在更新中
+        const existingLock = await DatabaseLock.findOne({});
+        if (existingLock?.isUpdating) {
+            return res.status(400).json({
+                success: false,
+                message: '已有更新任务在进行中',
+                lockedAt: existingLock.lockedAt
+            });
+        }
+
+        // 启动测试任务
+        const scheduledTasks = require('../services/scheduledTasks');
+        console.log('开始测试定时更新任务...');
+        
+        // 异步执行任务，不等待完成
+        scheduledTasks.executeAllTasks().then(() => {
+            console.log('测试定时更新任务完成');
+        }).catch(error => {
+            console.error('测试定时更新任务失败:', error);
+        });
+
+        res.json({
+            success: true,
+            message: '测试更新任务已启动，请通过 GET /checkLockStatus 查看更新状态'
+        });
+    } catch (error) {
+        console.error('启动测试更新任务失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '启动测试更新任务失败',
+            error: error.message
+        });
+    }
+});
+
+// 查看锁状态
+router.get('/checkLockStatus', async (req, res) => {
+    try {
+        const lock = await DatabaseLock.findOne({});
+        res.json({
+            success: true,
+            data: {
+                isUpdating: lock?.isUpdating || false,
+                lockedAt: lock?.lockedAt,
+                unlockedAt: lock?.unlockedAt
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: '获取锁状态失败',
             error: error.message
         });
     }

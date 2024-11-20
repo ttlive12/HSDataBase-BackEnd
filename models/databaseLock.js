@@ -1,9 +1,9 @@
 const mongoose = require('mongoose');
 
 const databaseLockSchema = new mongoose.Schema({
-    isLocked: {
+    isUpdating: {
         type: Boolean,
-        required: true
+        default: false
     },
     lockedAt: {
         type: Date,
@@ -11,10 +11,6 @@ const databaseLockSchema = new mongoose.Schema({
     },
     unlockedAt: {
         type: Date
-    },
-    isUpdating: {
-        type: Boolean,
-        default: false
     }
 });
 

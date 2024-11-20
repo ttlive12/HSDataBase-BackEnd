@@ -64,22 +64,24 @@ const rankDetailsSchema = new mongoose.Schema({
     }
 });
 
-// 修改复合唯一索引
-rankDetailsSchema.index({ deckId: 1, rank: 1 }, { unique: true });  // 使用 deckId 和 rank 作为复合唯一索引
-
 // 删除所有现有索引并创建新的复合索引的函数
 async function rebuildRankDetailsIndexes() {
     try {
+        const RankDetails = mongoose.model('RankDetails', rankDetailsSchema);
+        
+        // 删除所有现有索引
         await RankDetails.collection.dropIndexes();
         console.log('已删除 RankDetails 的所有现有索引');
         
+        // 创建新的复合唯一索引
         await RankDetails.collection.createIndex(
-            { deckId: 1 }, 
+            { deckId: 1, rank: 1 }, 
             { unique: true }
         );
-        console.log('已为 RankDetails 创建新的唯一索引');
+        console.log('已为 RankDetails 创建新的复合唯一索引 (deckId + rank)');
     } catch (error) {
         console.error('重建 RankDetails 索引时出错:', error);
+        throw error;
     }
 }
 
