@@ -223,7 +223,7 @@ router.post('/repairDecksData', async (req, res) => {
         }));
 
         // 执行批量更新
-        console.log('执行数据库更新...');
+        console.log('��行数据库更新...');
         const deckResult = await Deck.bulkWrite(deckOperations);
         const rankDetailsResult = await RankDetails.bulkWrite(rankDetailsOperations);
         const rankDataResult = await RankData.bulkWrite(rankDataOperations);
@@ -435,7 +435,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
         const deckIds1 = await Deck.distinct('deckId');
         const deckIds2 = await RankDetails.distinct('deckId');
         
-        // 2. 合并并去重
+        // 2. 合并���去重
         const uniqueDeckIds = [...new Set([...deckIds1, ...deckIds2])];
         console.log(`总共找到 ${uniqueDeckIds.length} 个唯一卡组ID（Deck表: ${deckIds1.length}, RankDetails表: ${deckIds2.length}）`);
 
@@ -561,6 +561,12 @@ router.post('/fetchRankDetails', async (req, res) => {
         // 2. 获取有卡组名称
         const rankData = await RankData.distinct('name');
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
+        const minGamesMap = {
+            'top_legend': [200, 100, 50],
+            'top_10k': [400, 200, 100],
+            'diamond_4to1': [6400, 3200, 1600],
+            'diamond_to_legend': [12800, 6400, 3200]
+        };
         const allDecks = [];
         const processedDeckIds = new Set();
 
@@ -574,23 +580,23 @@ router.post('/fetchRankDetails', async (req, res) => {
                 try {
                     for (const rank of ranks) {
                         try {
-                            await new Promise(resolve => setTimeout(resolve, 500));
+                            let decks = [];
+                            for (const minGames of minGamesMap[rank]) {
+                                const params = new URLSearchParams({
+                                    'player_deck_archetype[]': deckName,
+                                    rank: rank,
+                                    min_games: minGames
+                                });
 
-                            const params = new URLSearchParams({
-                                'player_deck_archetype[]': deckName,
-                                rank: rank
-                            });
+                                const url = `https://www.hsguru.com/decks?${params.toString()}`;
+                                console.log(`请求 ${deckName} 在 ${rank} 的数据，min_games=${minGames}...`);
+                                
+                                decks = await crawlerService.crawlDecksForRank(url);
 
-                            if (rank === 'top_legend') {
-                                params.append('min_games', '50');
-                            } else if (rank === 'top_10k') {
-                                params.append('min_games', '100');
+                                if (decks && decks.length > 0) {
+                                    break;  // 找到非空结果，退出循环
+                                }
                             }
-
-                            const url = `https://www.hsguru.com/decks?${params.toString()}`;
-                            console.log(`请求 ${deckName} 在 ${rank} 的数据...`);
-                            
-                            const decks = await crawlerService.crawlDecksForRank(url);
 
                             if (decks && decks.length > 0) {
                                 // 只保留每个 deckId 的最新数据
@@ -701,7 +707,7 @@ router.get('/getRankDetails', async (req, res) => {
             result[rank] = decks;
         }
 
-        // 如���所有rank都没有找到数据
+        // 如所有rank都没有找到数据
         const totalDecks = Object.values(result).flat().length;
         if (totalDecks === 0) {
             return res.status(404).json({
