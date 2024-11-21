@@ -38,7 +38,7 @@ router.use(checkDatabaseLock);
 router.post('/fetchDecksData', async (req, res) => {
     try {
         const decks = await crawlerService.crawlAllDecks();
-        
+
         const operations = decks.map(deck => ({
             updateOne: {
                 filter: { deckId: deck.deckId, rank: deck.rank },
@@ -46,7 +46,8 @@ router.post('/fetchDecksData', async (req, res) => {
                 upsert: true
             }
         }));
-
+        await Deck.deleteMany({});
+        console.log('已清空原有卡组数据');
         const result = await Deck.bulkWrite(operations);
 
         res.json({
@@ -71,16 +72,16 @@ router.get('/getDecksData', async (req, res) => {
 
         for (const rank of ranks) {
             const decks = await Deck.find(
-                { 
+                {
                     rank,
                     order: { $exists: true },
-                    cards: { 
+                    cards: {
                         $exists: true,
                         $ne: [],
                         $type: 'array'
                     },
                     zhName: { $exists: true, $ne: '' }
-                }, 
+                },
                 {
                     deckId: 1,
                     name: 1,
@@ -100,13 +101,13 @@ router.get('/getDecksData', async (req, res) => {
             ).sort({ order: 1 });
 
             // 进步过滤确保所有必要字段都存在且有效
-            const validDecks = decks.filter(deck => 
-                deck.cards.every(card => 
-                    card && 
-                    card.dbfId && 
-                    card.cost !== undefined && 
-                    card.id && 
-                    card.rarity && 
+            const validDecks = decks.filter(deck =>
+                deck.cards.every(card =>
+                    card &&
+                    card.dbfId &&
+                    card.cost !== undefined &&
+                    card.id &&
+                    card.rarity &&
                     card.name
                 ) &&
                 deck.name &&
@@ -117,7 +118,7 @@ router.get('/getDecksData', async (req, res) => {
             // 如果发现没有 zhName 的数据，打印日志以便调试
             const invalidDecks = decks.filter(deck => !deck.zhName);
             if (invalidDecks.length > 0) {
-                console.warn(`发现 ${invalidDecks.length} 个缺失 zhName 的卡组:`, 
+                console.warn(`发现 ${invalidDecks.length} 个缺失 zhName 的卡组:`,
                     invalidDecks.map(d => ({
                         deckId: d.deckId,
                         name: d.name,
@@ -223,7 +224,7 @@ router.post('/repairDecksData', async (req, res) => {
         }));
 
         // 执行批量更新
-        console.log('��行数据库更新...');
+        console.log('��据库更新...');
         const deckResult = await Deck.bulkWrite(deckOperations);
         const rankDetailsResult = await RankDetails.bulkWrite(rankDetailsOperations);
         const rankDataResult = await RankData.bulkWrite(rankDataOperations);
@@ -273,10 +274,10 @@ router.post('/fetchRanksData', async (req, res) => {
         console.log('已清空原有排名数据');
 
         const decks = await rankCrawler.crawlAllRanks();
-        
+
         // 过滤掉出场率在 0.2% 及以下的卡组
         const filteredDecks = decks.filter(deck => deck.popularityPercent > 0.2);
-        
+
         const operations = filteredDecks.map(deck => ({
             updateOne: {
                 filter: { rank: deck.rank, name: deck.name },
@@ -353,7 +354,7 @@ router.post('/fetchDeckCardStats', async (req, res) => {
             try {
                 console.log(`处理卡组 ${deckName} 的数据...`);
                 const stats = await cardStatsService.getAllRanksCardStats(deckName);
-                
+
                 // 为每个 rank 创建一个记录
                 for (const rank of Object.keys(stats)) {
                     allStats.push({
@@ -375,12 +376,13 @@ router.post('/fetchDeckCardStats', async (req, res) => {
                 upsert: true
             }
         }));
-
+        await CardStats.deleteMany({});
+        console.log('已清空原有卡牌统计数据');
         await CardStats.bulkWrite(operations);
 
         res.json({
             success: true,
-            message: `功更新 ${allStats.length} 条卡组统计数据`
+            message: `成功更新 ${allStats.length} 条卡组统计数据`
         });
     } catch (error) {
         console.error('处理卡牌统计数据时出错:', error);
@@ -396,7 +398,7 @@ router.post('/fetchDeckCardStats', async (req, res) => {
 router.get('/getDeckCardStats', async (req, res) => {
     try {
         const { deckName } = req.query;  // 从查询参数中获取 deckName
-        
+
         if (!deckName) {
             return res.status(400).json({
                 success: false,
@@ -431,11 +433,13 @@ router.get('/getDeckCardStats', async (req, res) => {
 // POST /fetchDeckDetails - 爬取卡组对战数据
 router.post('/fetchDeckDetails', async (req, res) => {
     try {
+        await DeckDetails.deleteMany({});
+        console.log('已清空原有对战数据');
         // 1. 从两个表中获取所有 deckId
         const deckIds1 = await Deck.distinct('deckId');
         const deckIds2 = await RankDetails.distinct('deckId');
-        
-        // 2. 合并���去重
+
+        // 2. 合并去重
         const uniqueDeckIds = [...new Set([...deckIds1, ...deckIds2])];
         console.log(`总共找到 ${uniqueDeckIds.length} 个唯一卡组ID（Deck表: ${deckIds1.length}, RankDetails表: ${deckIds2.length}）`);
 
@@ -445,14 +449,14 @@ router.post('/fetchDeckDetails', async (req, res) => {
         // 3. 分批处理卡组
         for (let i = 0; i < uniqueDeckIds.length; i += concurrencyLimit) {
             const batch = uniqueDeckIds.slice(i, i + concurrencyLimit);
-            console.log(`处理卡组批次 ${Math.floor(i/concurrencyLimit) + 1}/${Math.ceil(uniqueDeckIds.length/concurrencyLimit)}...`);
+            console.log(`处理卡组批次 ${Math.floor(i / concurrencyLimit) + 1}/${Math.ceil(uniqueDeckIds.length / concurrencyLimit)}...`);
 
             const batchPromises = batch.map(async (deckId) => {
                 try {
                     console.log(`处理卡组 ${deckId} 的对战数据...`);
                     const details = await deckDetailsService.getAllRanksDetails(deckId);
-                    
-                    // 为每个 rank 创建一个记录
+
+                    // 为每个 rank 创建一记录
                     for (const [rank, opponents] of Object.entries(details)) {
                         allDetails.push({
                             deckId,
@@ -481,7 +485,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
 
                 await DeckDetails.bulkWrite(operations);
                 console.log(`已保存 ${allDetails.length} 条对战数据到数据库`);
-                
+
                 // 清空数组，释放内存
                 allDetails.length = 0;
             }
@@ -513,7 +517,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
 router.get('/getDeckDetails', async (req, res) => {
     try {
         const { deckId } = req.query;
-        
+
         if (!deckId) {
             return res.status(400).json({
                 success: false,
@@ -548,15 +552,12 @@ router.get('/getDeckDetails', async (req, res) => {
 // POST /fetchRankDetails - 爬取卡组详细数据
 router.post('/fetchRankDetails', async (req, res) => {
     try {
-        // 1. 清理数据库中的错误数据
-        console.log('清理数据库中的错误数据...');
-        await RankDetails.deleteMany({
-            $or: [
-                { deckId: { $exists: false } },
-                { deckId: null },
-                { deckId: '' }
-            ]
-        });
+        // 添加延迟函数
+        const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        // 空所有数据
+        await RankDetails.deleteMany({});
+        console.log('已清空原有卡组详细数据');
 
         // 2. 获取有卡组名称
         const rankData = await RankData.distinct('name');
@@ -568,13 +569,13 @@ router.post('/fetchRankDetails', async (req, res) => {
             'diamond_to_legend': [12800, 6400, 3200]
         };
         const allDecks = [];
-        const processedDeckIds = new Set();
+        const processedKeys = new Set();  // 修改为使用 deckId-rank-name 组合作为唯一标识
 
         // 3. 限制并发请求数量
-        const concurrencyLimit = 3;
+        const concurrencyLimit = 2;
         for (let i = 0; i < rankData.length; i += concurrencyLimit) {
             const batch = rankData.slice(i, i + concurrencyLimit);
-            console.log(`处理卡组批次 ${i/concurrencyLimit + 1}/${Math.ceil(rankData.length/concurrencyLimit)}...`);
+            console.log(`处理卡组批次 ${Math.floor(i / concurrencyLimit) + 1}/${Math.ceil(rankData.length / concurrencyLimit)}...`);
 
             await Promise.all(batch.map(async (deckName) => {
                 try {
@@ -582,6 +583,8 @@ router.post('/fetchRankDetails', async (req, res) => {
                         try {
                             let decks = [];
                             for (const minGames of minGamesMap[rank]) {
+                                await delay(50);
+
                                 const params = new URLSearchParams({
                                     'player_deck_archetype[]': deckName,
                                     rank: rank,
@@ -590,22 +593,33 @@ router.post('/fetchRankDetails', async (req, res) => {
 
                                 const url = `https://www.hsguru.com/decks?${params.toString()}`;
                                 console.log(`请求 ${deckName} 在 ${rank} 的数据，min_games=${minGames}...`);
-                                
-                                decks = await crawlerService.crawlDecksForRank(url);
 
-                                if (decks && decks.length > 0) {
-                                    break;  // 找到非空结果，退出循环
-                                }
-                            }
+                                try {
+                                    decks = await Promise.race([
+                                        crawlerService.crawlDecksForRank(url),
+                                        new Promise((_, reject) =>
+                                            setTimeout(() => reject(new Error('请求超时')), 30000)
+                                        )
+                                    ]);
 
-                            if (decks && decks.length > 0) {
-                                // 只保留每个 deckId 的最新数据
-                                decks.forEach(deck => {
-                                    if (!processedDeckIds.has(deck.deckId)) {
-                                        processedDeckIds.add(deck.deckId);
-                                        allDecks.push(deck);
+                                    if (decks && decks.length > 0) {
+                                        // 修改去重逻辑，使用 deckId-rank-name 组合
+                                        decks.forEach(deck => {
+                                            deck.name = deckName;
+                                            const key = `${deck.deckId}-${deck.rank}-${deck.name}`;
+                                            if (!processedKeys.has(key)) {
+                                                processedKeys.add(key);
+                                                allDecks.push(deck);
+                                            }
+                                        });
+                                        console.log(`成功获取 ${deckName} 在 ${rank} 的数据，找到 ${decks.length} 个卡组`);
+                                        break;  // 找到非空结果，退出循环
                                     }
-                                });
+                                } catch (error) {
+                                    console.error(`请求失败 (${deckName}, ${rank}, ${minGames}):`, error.message);
+                                    await delay(1000); // 请求失败后等待1 秒
+                                    continue;
+                                }
                             }
                         } catch (error) {
                             console.error(`处理 ${deckName} 在 ${rank} 失败:`, error);
@@ -616,15 +630,18 @@ router.post('/fetchRankDetails', async (req, res) => {
                 }
             }));
 
+            await delay(500);
+
             // 5. 每处理完一批次就更新数据库
             if (allDecks.length > 0) {
                 const operations = allDecks.map(deck => ({
                     updateOne: {
-                        filter: { 
+                        filter: {
                             deckId: deck.deckId,
-                            rank: deck.rank    // 添加 rank 作为过滤条件
+                            rank: deck.rank,
+                            name: deck.name  // 添加 name 到过滤条件
                         },
-                        update: { 
+                        update: {
                             $set: {
                                 ...deck,
                                 updatedAt: new Date()
@@ -636,7 +653,7 @@ router.post('/fetchRankDetails', async (req, res) => {
 
                 await RankDetails.bulkWrite(operations);
                 console.log(`已保存 ${allDecks.length} 条数据到数据库`);
-                
+
                 allDecks.length = 0;
             }
         }
@@ -645,7 +662,7 @@ router.post('/fetchRankDetails', async (req, res) => {
             success: true,
             message: '成功更新卡组详细数据',
             stats: {
-                uniqueDeckIds: processedDeckIds.size
+                uniqueKeys: processedKeys.size
             }
         });
     } catch (error) {
@@ -662,7 +679,7 @@ router.post('/fetchRankDetails', async (req, res) => {
 router.get('/getRankDetails', async (req, res) => {
     try {
         const { name } = req.query;
-        
+
         if (!name) {
             return res.status(400).json({
                 success: false,
@@ -675,17 +692,17 @@ router.get('/getRankDetails', async (req, res) => {
 
         for (const rank of ranks) {
             const decks = await RankDetails.find(
-                { 
+                {
                     name,
                     rank,
                     order: { $exists: true },
-                    cards: { 
+                    cards: {
                         $exists: true,
                         $ne: [],
                         $type: 'array'
                     },
                     zhName: { $exists: true, $ne: '' }
-                }, 
+                },
                 {
                     deckId: 1,
                     name: 1,
@@ -746,7 +763,7 @@ router.post('/testScheduledUpdate', async (req, res) => {
         // 启动测试任务
         const scheduledTasks = require('../services/scheduledTasks');
         console.log('开始测试定时更新任务...');
-        
+
         // 异步执行任务，不等待完成
         scheduledTasks.executeAllTasks().then(() => {
             console.log('测试定时更新任务完成');

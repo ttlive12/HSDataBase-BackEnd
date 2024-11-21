@@ -73,12 +73,12 @@ async function rebuildRankDetailsIndexes() {
         await RankDetails.collection.dropIndexes();
         console.log('已删除 RankDetails 的所有现有索引');
         
-        // 创建新的复合唯一索引
+        // 创建新的复合唯一索引，使用 deckId、rank 和 name 的组合
         await RankDetails.collection.createIndex(
-            { deckId: 1, rank: 1 }, 
+            { deckId: 1, rank: 1, name: 1 }, 
             { unique: true }
         );
-        console.log('已为 RankDetails 创建新的复合唯一索引 (deckId + rank)');
+        console.log('已为 RankDetails 创建新的复合唯一索引 (deckId + rank + name)');
     } catch (error) {
         console.error('重建 RankDetails 索引时出错:', error);
         throw error;
