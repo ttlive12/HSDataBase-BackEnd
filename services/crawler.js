@@ -7,15 +7,21 @@ class CrawlerService {
     constructor() {
         this.baseUrl = 'https://www.hsguru.com/decks';
         this.ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
+        this.minGamesLevels = [1600, 800, 400, 200, 50];
     }
 
     /**
      * 构建特定rank的URL
      * @param {string} rank 
+     * @param {number} minGames 
      * @returns {string}
      */
-    buildUrl(rank) {
-        return `${this.baseUrl}?format=2&rank=${rank}`;
+    buildUrl(rank, minGames = null) {
+        let url = `${this.baseUrl}?format=2&rank=${rank}`;
+        if (minGames) {
+            url += `&min_games=${minGames}`;
+        }
+        return url;
     }
 
     /**
@@ -103,65 +109,92 @@ class CrawlerService {
             const rankMatch = url.match(/[?&]rank=([^&]+)/);
             const rank = rankMatch ? rankMatch[1] : urlOrRank;
 
-            // 使用 Promise.all 和 map 替代 each
-            const deckElements = $('div[id^="deck_stats-"]').toArray();
-            const decks = await Promise.all(deckElements.map(async (element, index) => {
-                try {
-                    const $element = $(element);
-                    const deckId = $element.attr('id')?.split('-')[1];
-                    if (!deckId) return null;
+            let decks = await this.extractDecksFromHtml($, rank);
+
+            // 如果数据量小于10且是基础URL（不包含min_games参数），尝试使用不同的min_games值
+            if (decks.length < 10 && !url.includes('min_games=')) {
+                console.log(`${rank} 获取到的数据量不足(${decks.length})，开始尝试降级请求...`);
+                
+                for (const minGames of this.minGamesLevels) {
+                    console.log(`尝试使用 min_games=${minGames} 重新请求...`);
+                    const newUrl = this.buildUrl(rank, minGames);
+                    const newResponse = await axios.get(newUrl);
+                    const new$ = cheerio.load(newResponse.data);
+                    decks = await this.extractDecksFromHtml(new$, rank);
                     
-                    const dustText = $element.find('.dust-bar-inner').text().trim();
-                    const dust = this.safeParseNumber(dustText);
-
-                    const gamesText = $element.find('.column.tag').text().trim();
-                    const winrateMatch = gamesText.match(/^(\d+\.?\d*)/);
-                    const gamesMatch = gamesText.match(/Games:\s*(\d+)/);
-
-                    const winrate = winrateMatch ? parseFloat(winrateMatch[1]) : 0;
-                    const games = gamesMatch ? parseInt(gamesMatch[1]) : 0;
-
-                    const cardInfos = this.extractCardIds($, element);
-                    const cards = cardInfos.map(info => {
-                        const cardData = cardService.getCardById(info.id);
-                        return cardData ? { ...cardData, back: info.back } : null;
-                    }).filter(card => card !== null);
-
-                    const name = this.extractDeckName($, element);
-                    const zhName = await deckNameService.getChineseName(name);
-                    const legendaryCardNum = cards.filter(card => card.rarity === 'LEGENDARY').length;
-
-                    const deckData = {
-                        deckId,
-                        rank,
-                        order: index,
-                        name,
-                        zhName,
-                        legendaryCardNum,
-                        deckcode: this.extractDeckCode($, element),
-                        cards,
-                        dust,
-                        games,
-                        winrate,
-                        class: this.extractClass($, element)
-                    };
-
-                    if (deckData.deckId && deckData.name && deckData.cards.length > 0) {
-                        return deckData;
+                    if (decks.length >= 10) {
+                        console.log(`使用 min_games=${minGames} 成功获取到足够数据(${decks.length}条)`);
+                        break;
                     }
-                    return null;
-                } catch (error) {
-                    console.warn(`处理${rank}中的卡组时出错:`, error);
-                    return null;
+                    
+                    if (minGames === 50) {
+                        console.log(`已降至最低等级(min_games=50)，返回当前结果(${decks.length}条)`);
+                    }
                 }
-            }));
+            }
 
-            // 过滤掉 null 值并返回
-            return decks.filter(deck => deck !== null);
+            return decks;
         } catch (error) {
             console.error(`爬取数据时出错:`, error);
             throw error;
         }
+    }
+
+    // 从HTML中提取卡组数据的辅助方法
+    async extractDecksFromHtml($, rank) {
+        const decks = [];
+        const deckElements = $('div[id^="deck_stats-"]').toArray();
+        
+        for (const element of deckElements) {
+            try {
+                const $element = $(element);
+                const deckId = $element.attr('id')?.split('-')[1];
+                if (!deckId) continue;
+                
+                const dustText = $element.find('.dust-bar-inner').text().trim();
+                const dust = this.safeParseNumber(dustText);
+
+                const gamesText = $element.find('.column.tag').text().trim();
+                const winrateMatch = gamesText.match(/^(\d+\.?\d*)/);
+                const gamesMatch = gamesText.match(/Games:\s*(\d+)/);
+
+                const winrate = winrateMatch ? parseFloat(winrateMatch[1]) : 0;
+                const games = gamesMatch ? parseInt(gamesMatch[1]) : 0;
+
+                const cardInfos = this.extractCardIds($, element);
+                const cards = cardInfos.map(info => {
+                    const cardData = cardService.getCardById(info.id);
+                    return cardData ? { ...cardData, back: info.back } : null;
+                }).filter(card => card !== null);
+
+                const name = this.extractDeckName($, element);
+                const zhName = await deckNameService.getChineseName(name);
+                const legendaryCardNum = cards.filter(card => card.rarity === 'LEGENDARY').length;
+
+                const deckData = {
+                    deckId,
+                    rank,
+                    order: decks.length,
+                    name,
+                    zhName,
+                    legendaryCardNum,
+                    deckcode: this.extractDeckCode($, element),
+                    cards,
+                    dust,
+                    games,
+                    winrate,
+                    class: this.extractClass($, element)
+                };
+
+                if (deckData.deckId && deckData.name && deckData.cards.length > 0) {
+                    decks.push(deckData);
+                }
+            } catch (error) {
+                console.warn(`处理${rank}中的卡组时出错:`, error);
+            }
+        }
+        
+        return decks;
     }
 
     /**

@@ -224,7 +224,7 @@ router.post('/repairDecksData', async (req, res) => {
         }));
 
         // 执行批量更新
-        console.log('��据库更新...');
+        console.log('数据库更新...');
         const deckResult = await Deck.bulkWrite(deckOperations);
         const rankDetailsResult = await RankDetails.bulkWrite(rankDetailsOperations);
         const rankDataResult = await RankData.bulkWrite(rankDataOperations);
@@ -564,9 +564,9 @@ router.post('/fetchRankDetails', async (req, res) => {
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
         const minGamesMap = {
             'top_legend': [200, 100, 50],
-            'top_10k': [400, 200, 100],
-            'diamond_4to1': [6400, 3200, 1600],
-            'diamond_to_legend': [12800, 6400, 3200]
+            'top_10k': [400, 200, 100, 50],
+            'diamond_4to1': [6400, 3200, 1600, 400, 100],
+            'diamond_to_legend': [12800, 6400, 3200, 800, 200]
         };
         const allDecks = [];
         const processedKeys = new Set();  // 修改为使用 deckId-rank-name 组合作为唯一标识
