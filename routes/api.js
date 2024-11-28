@@ -1,59 +1,48 @@
 const express = require('express');
 const router = express.Router();
-const { Deck } = require('../models/deck');
 const crawlerService = require('../services/crawler');
 const deckNameService = require('../services/deckNameService');
 const rankCrawler = require('../services/rankCrawler');
-const { RankData } = require('../models/rank');
 const cardStatsService = require('../services/cardStatsService');
-const { CardStats } = require('../models/cardStats');
 const deckDetailsService = require('../services/deckDetailsService');
-const { DeckDetails } = require('../models/deckDetails');
-const { RankDetails } = require('../models/rankDetails');
-const { DatabaseLock } = require('../models/databaseLock');
-
-// 添加锁检查中间件
-const checkDatabaseLock = async (req, res, next) => {
-    if (req.method === 'GET') {  // 只对 GET 请求进行检查
-        try {
-            const lock = await DatabaseLock.findOne({});
-            if (lock && lock.isUpdating) {
-                console.log(`数据正在更新中，拒绝访问请求: ${req.path}`);
-                return res.status(503).json({
-                    success: false,
-                    message: '数据正在更新中，请稍后访问'
-                });
-            }
-        } catch (error) {
-            console.error('检查数据库锁定状态时出错:', error);
-        }
-    }
-    next();
-};
-
-// 在所有路由之前使用中间件
-router.use(checkDatabaseLock);
+const { getModelForCollection } = require('../utils/modelHelper');
+const {
+    deckSchema,
+    rankDataSchema,
+    cardStatsSchema,
+    deckDetailsSchema,
+    rankDetailsSchema
+} = require('../models/schemas');
 
 // POST /fetchDecksData - 爬取并存储所有rank的卡组数据
 router.post('/fetchDecksData', async (req, res) => {
     try {
+        const isTemp = req.query.temp === 'true';
+        const DeckModel = getModelForCollection('Decks', deckSchema, isTemp);
+        
         const decks = await crawlerService.crawlAllDecks();
 
-        const operations = decks.map(deck => ({
-            updateOne: {
-                filter: { deckId: deck.deckId, rank: deck.rank },
-                update: { $set: deck },
-                upsert: true
-            }
-        }));
-        await Deck.deleteMany({});
-        console.log('已清空原有卡组数据');
-        const result = await Deck.bulkWrite(operations);
+        if (decks && decks.length > 0) {
+            const operations = decks.map(deck => ({
+                updateOne: {
+                    filter: { deckId: deck.deckId, rank: deck.rank },
+                    update: { $set: deck },
+                    upsert: true
+                }
+            }));
 
-        res.json({
-            success: true,
-            message: `成功爬取并更新 ${decks.length} 个卡组数据`
-        });
+            const result = await DeckModel.bulkWrite(operations);
+
+            res.json({
+                success: true,
+                message: `成功爬取并更新 ${decks.length} 个卡组数据到${isTemp ? '临时' : '主'}数据库`
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: '未获取到有效数据'
+            });
+        }
     } catch (error) {
         console.error('处理爬请求时出错:', error);
         res.status(500).json({
@@ -67,11 +56,12 @@ router.post('/fetchDecksData', async (req, res) => {
 // GET /getDecksData - 获取所有rank的卡组数据
 router.get('/getDecksData', async (req, res) => {
     try {
+        const DeckModel = getModelForCollection('Decks', deckSchema, false);
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
         const result = {};
 
         for (const rank of ranks) {
-            const decks = await Deck.find(
+            const decks = await DeckModel.find(
                 {
                     rank,
                     order: { $exists: true },
@@ -114,8 +104,7 @@ router.get('/getDecksData', async (req, res) => {
                 deck.zhName && // 确保 zhName 存在
                 deck.legendaryCardNum !== undefined
             );
-
-            // 如果发现没有 zhName 的数据，打印日志以便调试
+// 如果发现没有 zhName 的数据，打印日志以便调试
             const invalidDecks = decks.filter(deck => !deck.zhName);
             if (invalidDecks.length > 0) {
                 console.warn(`发现 ${invalidDecks.length} 个缺失 zhName 的卡组:`,
@@ -147,6 +136,11 @@ router.get('/getDecksData', async (req, res) => {
 // 修复数据
 router.post('/repairDecksData', async (req, res) => {
     try {
+        const isTemp = req.query.temp === 'true';
+        const DeckModel = getModelForCollection('Decks', deckSchema, isTemp);
+        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp);
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp);
+
         // 先重新加载最新的翻译数据
         await deckNameService.loadTranslations();
         console.log('已重新加载翻译数据');
@@ -160,9 +154,9 @@ router.post('/repairDecksData', async (req, res) => {
             rankData: { processed: 0, updated: 0 }
         };
 
-        // 新 Deck 表
+        // 处理 Deck 表
         console.log('开始处理 Deck 表...');
-        const decks = await Deck.find({});
+        const decks = await DeckModel.find({});
         const deckOperations = await Promise.all(decks.map(async deck => {
             stats.deck.processed++;
             processedNames.add(deck.name);
@@ -181,9 +175,9 @@ router.post('/repairDecksData', async (req, res) => {
             };
         }));
 
-        // 更新 RankDetails 表
-        console.log('开始处理 RankDetails 表...');
-        const rankDetails = await RankDetails.find({});
+        // 处理 RankDetails 表
+        console.log('开始处理 RankDetails ...');
+        const rankDetails = await RankDetailsModel.find({});
         const rankDetailsOperations = await Promise.all(rankDetails.map(async detail => {
             stats.rankDetails.processed++;
             processedNames.add(detail.name);
@@ -202,9 +196,9 @@ router.post('/repairDecksData', async (req, res) => {
             };
         }));
 
-        // 更新 RankData 表
+        // 处理 RankData 表
         console.log('开始处理 RankData 表...');
-        const rankDatas = await RankData.find({});
+        const rankDatas = await RankDataModel.find({});
         const rankDataOperations = await Promise.all(rankDatas.map(async data => {
             stats.rankData.processed++;
             processedNames.add(data.name);
@@ -224,10 +218,16 @@ router.post('/repairDecksData', async (req, res) => {
         }));
 
         // 执行批量更新
-        console.log('数据库更新...');
-        const deckResult = await Deck.bulkWrite(deckOperations);
-        const rankDetailsResult = await RankDetails.bulkWrite(rankDetailsOperations);
-        const rankDataResult = await RankData.bulkWrite(rankDataOperations);
+        console.log('执行数库更新...');
+        if (deckOperations.length > 0) {
+            await DeckModel.bulkWrite(deckOperations);
+        }
+        if (rankDetailsOperations.length > 0) {
+            await RankDetailsModel.bulkWrite(rankDetailsOperations);
+        }
+        if (rankDataOperations.length > 0) {
+            await RankDataModel.bulkWrite(rankDataOperations);
+        }
 
         // 将 Set 转换为数组并排序
         const untranslatedList = Array.from(untranslatedNames).sort();
@@ -235,7 +235,7 @@ router.post('/repairDecksData', async (req, res) => {
 
         res.json({
             success: true,
-            message: '数据修复完成',
+            message: `数据修复完成 (${isTemp ? '临时' : '主'}数据库)`,
             stats: {
                 deck: {
                     processed: stats.deck.processed,
@@ -269,34 +269,38 @@ router.post('/repairDecksData', async (req, res) => {
 // POST /fetchRanksData - 爬取并存储排名数据
 router.post('/fetchRanksData', async (req, res) => {
     try {
-        // 先清空数据库中的所有数据
-        await RankData.deleteMany({});
-        console.log('已清空原有排名数据');
+        const isTemp = req.query.temp === 'true';
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp);
 
         const decks = await rankCrawler.crawlAllRanks();
-
-        // 过滤掉出场率在 0.2% 及以下的卡组
         const filteredDecks = decks.filter(deck => deck.popularityPercent > 0.2);
 
-        const operations = filteredDecks.map(deck => ({
-            updateOne: {
-                filter: { rank: deck.rank, name: deck.name },
-                update: { $set: deck },
-                upsert: true
-            }
-        }));
+        if (filteredDecks.length > 0) {
+            const operations = filteredDecks.map(deck => ({
+                updateOne: {
+                    filter: { rank: deck.rank, name: deck.name },
+                    update: { $set: deck },
+                    upsert: true
+                }
+            }));
 
-        const result = await RankData.bulkWrite(operations);
-        const upsertedCount = result.upsertedCount || 0;
-        const modifiedCount = result.modifiedCount || 0;
-        const totalWritten = upsertedCount + modifiedCount;
+            const result = await RankDataModel.bulkWrite(operations);
+            const upsertedCount = result.upsertedCount || 0;
+            const modifiedCount = result.modifiedCount || 0;
+            const totalWritten = upsertedCount + modifiedCount;
 
-        res.json({
-            success: true,
-            message: `成功爬取 ${decks.length} 个排名数据，过滤后剩余 ${filteredDecks.length} 个（已过滤掉出场率 ≤ 0.2% 的卡组），实际写入数据库 ${totalWritten} 条（新增 ${upsertedCount} 条，更新 ${modifiedCount} 条）`
-        });
+            res.json({
+                success: true,
+                message: `成功爬取 ${decks.length} 个排名数据，过滤后剩余 ${filteredDecks.length} 个，实际写入${isTemp ? '临时' : ''}数据库 ${totalWritten} 条`
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: '未获取到有效数据'
+            });
+        }
     } catch (error) {
-        console.error('处理排名数据爬取请求时出错:', error);
+        console.error('处理排名数据爬取请求出错:', error);
         res.status(500).json({
             success: false,
             message: '爬取失败',
@@ -308,11 +312,12 @@ router.post('/fetchRanksData', async (req, res) => {
 // GET /getRanksData - 获取排名数据
 router.get('/getRanksData', async (req, res) => {
     try {
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, false);
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
         const result = {};
 
         for (const rank of ranks) {
-            const decks = await RankData.find(
+            const decks = await RankDataModel.find(
                 { rank },
                 {
                     name: 1,
@@ -346,43 +351,60 @@ router.get('/getRanksData', async (req, res) => {
 // POST /fetchDeckCardStats - 爬取卡组卡牌统计数据
 router.post('/fetchDeckCardStats', async (req, res) => {
     try {
-        const rankData = await RankData.find({}, { name: 1, _id: 0 });
+        const isTemp = req.query.temp === 'true';
+        const CardStatsModel = getModelForCollection('CardStats', cardStatsSchema, isTemp);
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp);
+        
+        // 获取所有卡组名称
+        console.log('获取卡组名称列表...');
+        const rankData = await RankDataModel.find({}, { name: 1, _id: 0 });
         const deckNames = [...new Set(rankData.map(d => d.name))];
+        console.log(`共找到 ${deckNames.length} 个唯一卡组名称`);
+
         const allStats = [];
 
+        // 串行处理每个卡组
         for (const deckName of deckNames) {
             try {
                 console.log(`处理卡组 ${deckName} 的数据...`);
                 const stats = await cardStatsService.getAllRanksCardStats(deckName);
 
-                // 为每个 rank 创建一个记录
                 for (const rank of Object.keys(stats)) {
-                    allStats.push({
-                        deckName,
-                        rank,
-                        cards: stats[rank]
-                    });
+                    if (stats[rank] && stats[rank].length > 0) {
+                        allStats.push({
+                            deckName,
+                            rank,
+                            cards: stats[rank]
+                        });
+                        console.log(`成功获取 ${deckName} 在 ${rank} 的卡牌统计数据，共 ${stats[rank].length} 张卡牌`);
+                    }
                 }
             } catch (error) {
                 console.error(`处理 ${deckName} 失败:`, error);
             }
         }
 
-        // 批量更新数据库
-        const operations = allStats.map(stat => ({
-            updateOne: {
-                filter: { deckName: stat.deckName, rank: stat.rank },
-                update: { $set: stat },
-                upsert: true
-            }
-        }));
-        await CardStats.deleteMany({});
-        console.log('已清空原有卡牌统计数据');
-        await CardStats.bulkWrite(operations);
+        // 所有数据收集完成后，一次性更新数据库
+        if (allStats.length > 0) {
+            console.log(`开始更新数据库，共有 ${allStats.length} 条数据...`);
+            
+            const operations = allStats.map(stat => ({
+                updateOne: {
+                    filter: { deckName: stat.deckName, rank: stat.rank },
+                    update: { $set: stat },
+                    upsert: true
+                }
+            }));
+
+            await CardStatsModel.bulkWrite(operations);
+            console.log(`成功写入 ${allStats.length} 条数据到数据库`);
+        } else {
+            console.log('未获取到任何有效数据');
+        }
 
         res.json({
             success: true,
-            message: `成功更新 ${allStats.length} 条卡组统计数据`
+            message: `成功更新 ${allStats.length} 条卡组统计数据到${isTemp ? '临时' : '主'}数据库`
         });
     } catch (error) {
         console.error('处理卡牌统计数据时出错:', error);
@@ -397,7 +419,8 @@ router.post('/fetchDeckCardStats', async (req, res) => {
 // GET /getDeckCardStats - 获取指定卡组的卡牌统计数据
 router.get('/getDeckCardStats', async (req, res) => {
     try {
-        const { deckName } = req.query;  // 从查询参数中获取 deckName
+        const { deckName } = req.query;
+        const CardStatsModel = getModelForCollection('CardStats', cardStatsSchema, false);
 
         if (!deckName) {
             return res.status(400).json({
@@ -407,7 +430,7 @@ router.get('/getDeckCardStats', async (req, res) => {
         }
 
         const result = {};
-        const stats = await CardStats.find(
+        const stats = await CardStatsModel.find(
             { deckName },
             { cards: 1, rank: 1, _id: 0 }
         );
@@ -433,30 +456,27 @@ router.get('/getDeckCardStats', async (req, res) => {
 // POST /fetchDeckDetails - 爬取卡组对战数据
 router.post('/fetchDeckDetails', async (req, res) => {
     try {
-        await DeckDetails.deleteMany({});
-        console.log('已清空原有对战数据');
-        // 1. 从两个表中获取所有 deckId
-        const deckIds1 = await Deck.distinct('deckId');
-        const deckIds2 = await RankDetails.distinct('deckId');
-
-        // 2. 合并去重
+        const isTemp = req.query.temp === 'true';
+        const DeckDetailsModel = getModelForCollection('DeckDetails', deckDetailsSchema, isTemp);
+        const DeckModel = getModelForCollection('Deck', deckSchema, isTemp);
+        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp);
+        
+        const deckIds1 = await DeckModel.distinct('deckId');
+        const deckIds2 = await RankDetailsModel.distinct('deckId');
         const uniqueDeckIds = [...new Set([...deckIds1, ...deckIds2])];
-        console.log(`总共找到 ${uniqueDeckIds.length} 个唯一卡组ID（Deck表: ${deckIds1.length}, RankDetails表: ${deckIds2.length}）`);
-
         const allDetails = [];
-        const concurrencyLimit = 3; // 限制并发请求数量
+        const concurrencyLimit = 3;
 
-        // 3. 分批处理卡组
+        // 2. 分批获取所有数据
         for (let i = 0; i < uniqueDeckIds.length; i += concurrencyLimit) {
             const batch = uniqueDeckIds.slice(i, i + concurrencyLimit);
-            console.log(`处理卡组批次 ${Math.floor(i / concurrencyLimit) + 1}/${Math.ceil(uniqueDeckIds.length / concurrencyLimit)}...`);
+            console.log(`处理卡组批次 ${Math.floor(i/concurrencyLimit) + 1}/${Math.ceil(uniqueDeckIds.length/concurrencyLimit)}...`);
 
             const batchPromises = batch.map(async (deckId) => {
                 try {
                     console.log(`处理卡组 ${deckId} 的对战数据...`);
                     const details = await deckDetailsService.getAllRanksDetails(deckId);
 
-                    // 为每个 rank 创建一记录
                     for (const [rank, opponents] of Object.entries(details)) {
                         allDetails.push({
                             deckId,
@@ -470,33 +490,25 @@ router.post('/fetchDeckDetails', async (req, res) => {
                 }
             });
 
-            // 等待当前批次完
             await Promise.all(batchPromises);
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
 
-            // 4. 每处理完一批次就更新数据库
-            if (allDetails.length > 0) {
-                const operations = allDetails.map(detail => ({
-                    updateOne: {
-                        filter: { deckId: detail.deckId, rank: detail.rank },
-                        update: { $set: detail },
-                        upsert: true
-                    }
-                }));
+        if (allDetails.length > 0) {
+            const operations = allDetails.map(detail => ({
+                updateOne: {
+                    filter: { deckId: detail.deckId, rank: detail.rank },
+                    update: { $set: detail },
+                    upsert: true
+                }
+            }));
 
-                await DeckDetails.bulkWrite(operations);
-                console.log(`已保存 ${allDetails.length} 条对战数据到数据库`);
-
-                // 清空数组，释放内存
-                allDetails.length = 0;
-            }
-
-            // 添加延迟，避免请求过快
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await DeckDetailsModel.bulkWrite(operations);
         }
 
         res.json({
             success: true,
-            message: `成功处理 ${uniqueDeckIds.length} 个卡组的对战数据`,
+            message: `成功处理 ${uniqueDeckIds.length} 个卡组的对战��据到${isTemp ? '临时' : '主'}数据库`,
             stats: {
                 totalUniqueDeckIds: uniqueDeckIds.length,
                 fromDeckTable: deckIds1.length,
@@ -517,6 +529,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
 router.get('/getDeckDetails', async (req, res) => {
     try {
         const { deckId } = req.query;
+        const DeckDetailsModel = getModelForCollection('DeckDetails', deckDetailsSchema, false);
 
         if (!deckId) {
             return res.status(400).json({
@@ -526,7 +539,7 @@ router.get('/getDeckDetails', async (req, res) => {
         }
 
         const result = {};
-        const details = await DeckDetails.find(
+        const details = await DeckDetailsModel.find(
             { deckId },
             { opponents: 1, rank: 1, _id: 0 }
         );
@@ -552,15 +565,12 @@ router.get('/getDeckDetails', async (req, res) => {
 // POST /fetchRankDetails - 爬取卡组详细数据
 router.post('/fetchRankDetails', async (req, res) => {
     try {
-        // 添加延迟函数
+        const isTemp = req.query.temp === 'true';
+        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp);
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp);
+        
         const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-        // 空所有数据
-        await RankDetails.deleteMany({});
-        console.log('已清空原有卡组详细数据');
-
-        // 2. 获取有卡组名称
-        const rankData = await RankData.distinct('name');
+        const rankData = await RankDataModel.distinct('name');
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
         const minGamesMap = {
             'top_legend': [200, 100, 50],
@@ -568,14 +578,14 @@ router.post('/fetchRankDetails', async (req, res) => {
             'diamond_4to1': [6400, 3200, 1600, 400, 100],
             'diamond_to_legend': [12800, 6400, 3200, 800, 200]
         };
-        const allDecks = [];
-        const processedKeys = new Set();  // 修改为使用 deckId-rank-name 组合作为唯一标识
+        const allDecks = [];  // 存储所有收集到的数
+        const processedKeys = new Set();
 
         // 3. 限制并发请求数量
         const concurrencyLimit = 2;
         for (let i = 0; i < rankData.length; i += concurrencyLimit) {
             const batch = rankData.slice(i, i + concurrencyLimit);
-            console.log(`处理卡组批次 ${Math.floor(i / concurrencyLimit) + 1}/${Math.ceil(rankData.length / concurrencyLimit)}...`);
+            console.log(`处理卡组批次 ${Math.floor(i/concurrencyLimit) + 1}/${Math.ceil(rankData.length/concurrencyLimit)}...`);
 
             await Promise.all(batch.map(async (deckName) => {
                 try {
@@ -603,9 +613,8 @@ router.post('/fetchRankDetails', async (req, res) => {
                                     ]);
 
                                     if (decks && decks.length > 0) {
-                                        // 修改去重逻辑，使用 deckId-rank-name 组合
                                         decks.forEach(deck => {
-                                            deck.name = deckName;
+                                            deck.name = deckName;  // 使用原始名称
                                             const key = `${deck.deckId}-${deck.rank}-${deck.name}`;
                                             if (!processedKeys.has(key)) {
                                                 processedKeys.add(key);
@@ -613,11 +622,11 @@ router.post('/fetchRankDetails', async (req, res) => {
                                             }
                                         });
                                         console.log(`成功获取 ${deckName} 在 ${rank} 的数据，找到 ${decks.length} 个卡组`);
-                                        break;  // 找到非空结果，退出循环
+                                        break;
                                     }
                                 } catch (error) {
                                     console.error(`请求失败 (${deckName}, ${rank}, ${minGames}):`, error.message);
-                                    await delay(1000); // 请求失败后等待1 秒
+                                    await delay(1000);
                                     continue;
                                 }
                             }
@@ -631,37 +640,43 @@ router.post('/fetchRankDetails', async (req, res) => {
             }));
 
             await delay(500);
+        }
 
-            // 5. 每处理完一批次就更新数据库
-            if (allDecks.length > 0) {
-                const operations = allDecks.map(deck => ({
-                    updateOne: {
-                        filter: {
-                            deckId: deck.deckId,
-                            rank: deck.rank,
-                            name: deck.name  // 添加 name 到过滤条件
-                        },
-                        update: {
-                            $set: {
-                                ...deck,
-                                updatedAt: new Date()
-                            }
-                        },
-                        upsert: true
-                    }
-                }));
+        // 所有数据收集完成后，一次性更新数据库
+        if (allDecks.length > 0) {
+            console.log(`开始更新数据库，共有 ${allDecks.length} 条数据...`);
+            
+            // 先清空数据库
+            await RankDetailsModel.deleteMany({});
+            console.log('已清空原有卡组详细数据');
 
-                await RankDetails.bulkWrite(operations);
-                console.log(`已保存 ${allDecks.length} 条数据到数据库`);
+            // 批量写入所有新数据
+            const operations = allDecks.map(deck => ({
+                updateOne: {
+                    filter: {
+                        deckId: deck.deckId,
+                        rank: deck.rank,
+                        name: deck.name
+                    },
+                    update: {
+                        $set: {
+                            ...deck,
+                            updatedAt: new Date()
+                        }
+                    },
+                    upsert: true
+                }
+            }));
 
-                allDecks.length = 0;
-            }
+            await RankDetailsModel.bulkWrite(operations);
+            console.log(`成功写入 ${allDecks.length} 条数据到数据库`);
         }
 
         res.json({
             success: true,
-            message: '成功更新卡组详细数据',
+            message: `成功更新卡组详细数据到${isTemp ? '临时' : '主'}数据库`,
             stats: {
+                totalDecks: allDecks.length,
                 uniqueKeys: processedKeys.size
             }
         });
@@ -679,6 +694,7 @@ router.post('/fetchRankDetails', async (req, res) => {
 router.get('/getRankDetails', async (req, res) => {
     try {
         const { name } = req.query;
+        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, false);
 
         if (!name) {
             return res.status(400).json({
@@ -691,7 +707,7 @@ router.get('/getRankDetails', async (req, res) => {
         const result = {};
 
         for (const rank of ranks) {
-            const decks = await RankDetails.find(
+            const decks = await RankDetailsModel.find(
                 {
                     name,
                     rank,
@@ -750,16 +766,6 @@ router.get('/getRankDetails', async (req, res) => {
 // 测试定时任务
 router.post('/testScheduledUpdate', async (req, res) => {
     try {
-        // 检查是否已经在更新中
-        const existingLock = await DatabaseLock.findOne({});
-        if (existingLock?.isUpdating) {
-            return res.status(400).json({
-                success: false,
-                message: '已有更新任务在进行中',
-                lockedAt: existingLock.lockedAt
-            });
-        }
-
         // 启动测试任务
         const scheduledTasks = require('../services/scheduledTasks');
         console.log('开始测试定时更新任务...');
@@ -773,34 +779,13 @@ router.post('/testScheduledUpdate', async (req, res) => {
 
         res.json({
             success: true,
-            message: '测试更新任务已启动，请通过 GET /checkLockStatus 查看更新状态'
+            message: '测试更新任务已启动'
         });
     } catch (error) {
         console.error('启动测试更新任务失败:', error);
         res.status(500).json({
             success: false,
             message: '启动测试更新任务失败',
-            error: error.message
-        });
-    }
-});
-
-// 查看锁状态
-router.get('/checkLockStatus', async (req, res) => {
-    try {
-        const lock = await DatabaseLock.findOne({});
-        res.json({
-            success: true,
-            data: {
-                isUpdating: lock?.isUpdating || false,
-                lockedAt: lock?.lockedAt,
-                unlockedAt: lock?.unlockedAt
-            }
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: '获取锁状态失败',
             error: error.message
         });
     }
