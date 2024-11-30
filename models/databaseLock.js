@@ -6,18 +6,26 @@ async function collectionExists(collectionName) {
     return collections.length > 0;
 }
 
+// 获取集合名称列表
+function getCollectionNames(isWild = false) {
+    const wildSuffix = isWild ? '_wild' : '';
+    return [
+        { main: `decks${wildSuffix}`, temp: `decks${wildSuffix}_temp` },
+        { main: `rankdatas${wildSuffix}`, temp: `rankdatas${wildSuffix}_temp` },
+        { main: `rankdetails${wildSuffix}`, temp: `rankdetails${wildSuffix}_temp` },
+        { main: `cardstats${wildSuffix}`, temp: `cardstats${wildSuffix}_temp` },
+        { main: `deckdetails${wildSuffix}`, temp: `deckdetails${wildSuffix}_temp` }
+    ];
+}
+
 // 集合切换功能
-async function swapCollections() {
+async function swapCollections(isWild = false) {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
-        const collections = [
-            { main: 'decks', temp: 'decks_temp' },
-            { main: 'rankdatas', temp: 'rankdatas_temp' },
-            { main: 'rankdetails', temp: 'rankdetails_temp' },
-            { main: 'cardstats', temp: 'cardstats_temp' },
-            { main: 'deckdetails', temp: 'deckdetails_temp' }
-        ];
+        const collections = getCollectionNames(isWild);
+        const mode = isWild ? '狂野' : '标准';
+        console.log(`开始切换${mode}模式集合...`);
 
         for (const { main, temp } of collections) {
             // 检查临时集合是否存在
@@ -45,10 +53,10 @@ async function swapCollections() {
         }
 
         await session.commitTransaction();
-        console.log('所有集合切换完成');
+        console.log(`${mode}模式所有集合切换完成`);
     } catch (error) {
         await session.abortTransaction();
-        console.error('切换集合时出错:', error);
+        console.error(`切换${isWild ? '狂野' : '标准'}模式集合时出错:`, error);
         throw error;
     } finally {
         session.endSession();
@@ -56,25 +64,23 @@ async function swapCollections() {
 }
 
 // 清理临时集合功能
-async function cleanupTempCollections() {
+async function cleanupTempCollections(isWild = false) {
     try {
-        const collections = [
-            'decks_temp',
-            'rankdatas_temp',
-            'rankdetails_temp',
-            'cardstats_temp',
-            'deckdetails_temp'
-        ];
+        const collections = getCollectionNames(isWild);
+        const mode = isWild ? '狂野' : '标准';
+        console.log(`开始清理${mode}模式临时集合...`);
 
-        for (const collection of collections) {
-            const exists = await collectionExists(collection);
+        for (const { temp } of collections) {
+            const exists = await collectionExists(temp);
             if (exists) {
-                await mongoose.connection.db.collection(collection).drop();
-                console.log(`清理临时集合: ${collection}`);
+                await mongoose.connection.db.collection(temp).drop();
+                console.log(`清理临时集合: ${temp}`);
             }
         }
+        
+        console.log(`${mode}模式临时集合清理完成`);
     } catch (error) {
-        console.error('清理临时集合时出错:', error);
+        console.error(`清理${isWild ? '狂野' : '标准'}模式临时集合时出错:`, error);
         throw error;
     }
 }

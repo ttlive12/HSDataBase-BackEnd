@@ -18,15 +18,25 @@ const {
 router.post('/fetchDecksData', async (req, res) => {
     try {
         const isTemp = req.query.temp === 'true';
-        const DeckModel = getModelForCollection('Decks', deckSchema, isTemp);
+        const isWild = req.query.wild === 'true';
+        const DeckModel = getModelForCollection('Decks', deckSchema, isTemp, isWild);
         
-        const decks = await crawlerService.crawlAllDecks();
+        const decks = await crawlerService.crawlAllDecks(isWild);
 
         if (decks && decks.length > 0) {
             const operations = decks.map(deck => ({
                 updateOne: {
-                    filter: { deckId: deck.deckId, rank: deck.rank },
-                    update: { $set: deck },
+                    filter: { 
+                        deckId: deck.deckId, 
+                        rank: deck.rank,
+                        mode: isWild ? 'wild' : 'standard'
+                    },
+                    update: { 
+                        $set: {
+                            ...deck,
+                            mode: isWild ? 'wild' : 'standard'
+                        }
+                    },
                     upsert: true
                 }
             }));
@@ -56,7 +66,8 @@ router.post('/fetchDecksData', async (req, res) => {
 // GET /getDecksData - 获取所有rank的卡组数据
 router.get('/getDecksData', async (req, res) => {
     try {
-        const DeckModel = getModelForCollection('Decks', deckSchema, false);
+        const isWild = req.query.wild === 'true';
+        const DeckModel = getModelForCollection('Decks', deckSchema, false, isWild);
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
         const result = {};
 
@@ -64,6 +75,7 @@ router.get('/getDecksData', async (req, res) => {
             const decks = await DeckModel.find(
                 {
                     rank,
+                    mode: isWild ? 'wild' : 'standard',
                     order: { $exists: true },
                     cards: {
                         $exists: true,
@@ -121,7 +133,8 @@ router.get('/getDecksData', async (req, res) => {
 
         res.json({
             success: true,
-            data: result
+            data: result,
+            mode: isWild ? 'wild' : 'standard'
         });
     } catch (error) {
         console.error('获取卡组数据时出错:', error);
@@ -137,9 +150,20 @@ router.get('/getDecksData', async (req, res) => {
 router.post('/repairDecksData', async (req, res) => {
     try {
         const isTemp = req.query.temp === 'true';
-        const DeckModel = getModelForCollection('Decks', deckSchema, isTemp);
-        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp);
-        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp);
+        const isWild = req.query.wild === 'true';
+
+        // 获取标准模式和狂野模式的 Model
+        const standardModels = {
+            deck: getModelForCollection('Decks', deckSchema, isTemp, false),
+            rankDetails: getModelForCollection('RankDetails', rankDetailsSchema, isTemp, false),
+            rankData: getModelForCollection('RankDatas', rankDataSchema, isTemp, false)
+        };
+
+        const wildModels = {
+            deck: getModelForCollection('Decks', deckSchema, isTemp, true),
+            rankDetails: getModelForCollection('RankDetails', rankDetailsSchema, isTemp, true),
+            rankData: getModelForCollection('RankDatas', rankDataSchema, isTemp, true)
+        };
 
         // 先重新加载最新的翻译数据
         await deckNameService.loadTranslations();
@@ -149,85 +173,103 @@ router.post('/repairDecksData', async (req, res) => {
         const untranslatedNames = new Set();
         const processedNames = new Set();
         const stats = {
-            deck: { processed: 0, updated: 0 },
-            rankDetails: { processed: 0, updated: 0 },
-            rankData: { processed: 0, updated: 0 }
+            standard: {
+                deck: { processed: 0, updated: 0 },
+                rankDetails: { processed: 0, updated: 0 },
+                rankData: { processed: 0, updated: 0 }
+            },
+            wild: {
+                deck: { processed: 0, updated: 0 },
+                rankDetails: { processed: 0, updated: 0 },
+                rankData: { processed: 0, updated: 0 }
+            }
         };
 
-        // 处理 Deck 表
-        console.log('开始处理 Deck 表...');
-        const decks = await DeckModel.find({});
-        const deckOperations = await Promise.all(decks.map(async deck => {
-            stats.deck.processed++;
-            processedNames.add(deck.name);
-            const zhName = await deckNameService.getChineseName(deck.name);
-            if (zhName === deck.name) {
-                untranslatedNames.add(deck.name);
-            }
-            if (zhName !== deck.zhName) {
-                stats.deck.updated++;
-            }
-            return {
-                updateOne: {
-                    filter: { _id: deck._id },
-                    update: { $set: { zhName } }
+        // 处理指定模式的数据
+        async function processMode(models, mode) {
+            // 处理 Deck 表
+            console.log(`开始处理${mode}模式 Deck 表...`);
+            const decks = await models.deck.find({});
+            const deckOperations = await Promise.all(decks.map(async deck => {
+                stats[mode].deck.processed++;
+                processedNames.add(deck.name);
+                const zhName = await deckNameService.getChineseName(deck.name);
+                if (zhName === deck.name) {
+                    untranslatedNames.add(deck.name);
                 }
-            };
-        }));
-
-        // 处理 RankDetails 表
-        console.log('开始处理 RankDetails ...');
-        const rankDetails = await RankDetailsModel.find({});
-        const rankDetailsOperations = await Promise.all(rankDetails.map(async detail => {
-            stats.rankDetails.processed++;
-            processedNames.add(detail.name);
-            const zhName = await deckNameService.getChineseName(detail.name);
-            if (zhName === detail.name) {
-                untranslatedNames.add(detail.name);
-            }
-            if (zhName !== detail.zhName) {
-                stats.rankDetails.updated++;
-            }
-            return {
-                updateOne: {
-                    filter: { _id: detail._id },
-                    update: { $set: { zhName } }
+                if (zhName !== deck.zhName) {
+                    stats[mode].deck.updated++;
                 }
-            };
-        }));
+                return {
+                    updateOne: {
+                        filter: { _id: deck._id },
+                        update: { $set: { zhName } }
+                    }
+                };
+            }));
 
-        // 处理 RankData 表
-        console.log('开始处理 RankData 表...');
-        const rankDatas = await RankDataModel.find({});
-        const rankDataOperations = await Promise.all(rankDatas.map(async data => {
-            stats.rankData.processed++;
-            processedNames.add(data.name);
-            const zhName = await deckNameService.getChineseName(data.name);
-            if (zhName === data.name) {
-                untranslatedNames.add(data.name);
-            }
-            if (zhName !== data.zhName) {
-                stats.rankData.updated++;
-            }
-            return {
-                updateOne: {
-                    filter: { _id: data._id },
-                    update: { $set: { zhName } }
+            // 处理 RankDetails 表
+            console.log(`开始处理${mode}模式 RankDetails ...`);
+            const rankDetails = await models.rankDetails.find({});
+            const rankDetailsOperations = await Promise.all(rankDetails.map(async detail => {
+                stats[mode].rankDetails.processed++;
+                processedNames.add(detail.name);
+                const zhName = await deckNameService.getChineseName(detail.name);
+                if (zhName === detail.name) {
+                    untranslatedNames.add(detail.name);
                 }
-            };
-        }));
+                if (zhName !== detail.zhName) {
+                    stats[mode].rankDetails.updated++;
+                }
+                return {
+                    updateOne: {
+                        filter: { _id: detail._id },
+                        update: { $set: { zhName } }
+                    }
+                };
+            }));
 
-        // 执行批量更新
-        console.log('执行数库更新...');
-        if (deckOperations.length > 0) {
-            await DeckModel.bulkWrite(deckOperations);
+            // 处理 RankData 表
+            console.log(`开始处理${mode}模式 RankData 表...`);
+            const rankDatas = await models.rankData.find({});
+            const rankDataOperations = await Promise.all(rankDatas.map(async data => {
+                stats[mode].rankData.processed++;
+                processedNames.add(data.name);
+                const zhName = await deckNameService.getChineseName(data.name);
+                if (zhName === data.name) {
+                    untranslatedNames.add(data.name);
+                }
+                if (zhName !== data.zhName) {
+                    stats[mode].rankData.updated++;
+                }
+                return {
+                    updateOne: {
+                        filter: { _id: data._id },
+                        update: { $set: { zhName } }
+                    }
+                };
+            }));
+
+            // 执行批量更新
+            console.log(`执行${mode}模式数据库更新...`);
+            if (deckOperations.length > 0) {
+                await models.deck.bulkWrite(deckOperations);
+            }
+            if (rankDetailsOperations.length > 0) {
+                await models.rankDetails.bulkWrite(rankDetailsOperations);
+            }
+            if (rankDataOperations.length > 0) {
+                await models.rankData.bulkWrite(rankDataOperations);
+            }
         }
-        if (rankDetailsOperations.length > 0) {
-            await RankDetailsModel.bulkWrite(rankDetailsOperations);
-        }
-        if (rankDataOperations.length > 0) {
-            await RankDataModel.bulkWrite(rankDataOperations);
-        }
+
+        // 处理标准模式数据
+        await processMode(standardModels, 'standard');
+        console.log('标准模式数据修复完成');
+
+        // 处理狂野模式数据
+        await processMode(wildModels, 'wild');
+        console.log('狂野模式数据修复完成');
 
         // 将 Set 转换为数组并排序
         const untranslatedList = Array.from(untranslatedNames).sort();
@@ -237,17 +279,33 @@ router.post('/repairDecksData', async (req, res) => {
             success: true,
             message: `数据修复完成 (${isTemp ? '临时' : '主'}数据库)`,
             stats: {
-                deck: {
-                    processed: stats.deck.processed,
-                    updated: stats.deck.updated
+                standard: {
+                    deck: {
+                        processed: stats.standard.deck.processed,
+                        updated: stats.standard.deck.updated
+                    },
+                    rankDetails: {
+                        processed: stats.standard.rankDetails.processed,
+                        updated: stats.standard.rankDetails.updated
+                    },
+                    rankData: {
+                        processed: stats.standard.rankData.processed,
+                        updated: stats.standard.rankData.updated
+                    }
                 },
-                rankDetails: {
-                    processed: stats.rankDetails.processed,
-                    updated: stats.rankDetails.updated
-                },
-                rankData: {
-                    processed: stats.rankData.processed,
-                    updated: stats.rankData.updated
+                wild: {
+                    deck: {
+                        processed: stats.wild.deck.processed,
+                        updated: stats.wild.deck.updated
+                    },
+                    rankDetails: {
+                        processed: stats.wild.rankDetails.processed,
+                        updated: stats.wild.rankDetails.updated
+                    },
+                    rankData: {
+                        processed: stats.wild.rankData.processed,
+                        updated: stats.wild.rankData.updated
+                    }
                 },
                 total: {
                     uniqueNames: processedList.length,
@@ -270,16 +328,26 @@ router.post('/repairDecksData', async (req, res) => {
 router.post('/fetchRanksData', async (req, res) => {
     try {
         const isTemp = req.query.temp === 'true';
-        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp);
+        const isWild = req.query.wild === 'true';
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp, isWild);
 
-        const decks = await rankCrawler.crawlAllRanks();
+        const decks = await rankCrawler.crawlAllRanks(isWild);
         const filteredDecks = decks.filter(deck => deck.popularityPercent > 0.2);
 
         if (filteredDecks.length > 0) {
             const operations = filteredDecks.map(deck => ({
                 updateOne: {
-                    filter: { rank: deck.rank, name: deck.name },
-                    update: { $set: deck },
+                    filter: { 
+                        rank: deck.rank, 
+                        name: deck.name,
+                        mode: isWild ? 'wild' : 'standard'
+                    },
+                    update: { 
+                        $set: {
+                            ...deck,
+                            mode: isWild ? 'wild' : 'standard'
+                        }
+                    },
                     upsert: true
                 }
             }));
@@ -312,13 +380,17 @@ router.post('/fetchRanksData', async (req, res) => {
 // GET /getRanksData - 获取排名数据
 router.get('/getRanksData', async (req, res) => {
     try {
-        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, false);
+        const isWild = req.query.wild === 'true';
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, false, isWild);
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
         const result = {};
 
         for (const rank of ranks) {
             const decks = await RankDataModel.find(
-                { rank },
+                { 
+                    rank,
+                    mode: isWild ? 'wild' : 'standard'
+                },
                 {
                     name: 1,
                     zhName: 1,
@@ -336,7 +408,8 @@ router.get('/getRanksData', async (req, res) => {
 
         res.json({
             success: true,
-            data: result
+            data: result,
+            mode: isWild ? 'wild' : 'standard'
         });
     } catch (error) {
         console.error('获取排名数据时出错:', error);
@@ -352,8 +425,9 @@ router.get('/getRanksData', async (req, res) => {
 router.post('/fetchDeckCardStats', async (req, res) => {
     try {
         const isTemp = req.query.temp === 'true';
-        const CardStatsModel = getModelForCollection('CardStats', cardStatsSchema, isTemp);
-        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp);
+        const isWild = req.query.wild === 'true';
+        const CardStatsModel = getModelForCollection('CardStats', cardStatsSchema, isTemp, isWild);
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp, isWild);
         
         // 获取所有卡组名称
         console.log('获取卡组名称列表...');
@@ -367,7 +441,7 @@ router.post('/fetchDeckCardStats', async (req, res) => {
         for (const deckName of deckNames) {
             try {
                 console.log(`处理卡组 ${deckName} 的数据...`);
-                const stats = await cardStatsService.getAllRanksCardStats(deckName);
+                const stats = await cardStatsService.getAllRanksCardStats(deckName, isWild);
 
                 for (const rank of Object.keys(stats)) {
                     if (stats[rank] && stats[rank].length > 0) {
@@ -390,8 +464,17 @@ router.post('/fetchDeckCardStats', async (req, res) => {
             
             const operations = allStats.map(stat => ({
                 updateOne: {
-                    filter: { deckName: stat.deckName, rank: stat.rank },
-                    update: { $set: stat },
+                    filter: { 
+                        deckName: stat.deckName, 
+                        rank: stat.rank,
+                        mode: isWild ? 'wild' : 'standard'
+                    },
+                    update: { 
+                        $set: {
+                            ...stat,
+                            mode: isWild ? 'wild' : 'standard'
+                        }
+                    },
                     upsert: true
                 }
             }));
@@ -420,7 +503,8 @@ router.post('/fetchDeckCardStats', async (req, res) => {
 router.get('/getDeckCardStats', async (req, res) => {
     try {
         const { deckName } = req.query;
-        const CardStatsModel = getModelForCollection('CardStats', cardStatsSchema, false);
+        const isWild = req.query.wild === 'true';
+        const CardStatsModel = getModelForCollection('CardStats', cardStatsSchema, false, isWild);
 
         if (!deckName) {
             return res.status(400).json({
@@ -431,7 +515,10 @@ router.get('/getDeckCardStats', async (req, res) => {
 
         const result = {};
         const stats = await CardStatsModel.find(
-            { deckName },
+            { 
+                deckName,
+                mode: isWild ? 'wild' : 'standard'
+            },
             { cards: 1, rank: 1, _id: 0 }
         );
 
@@ -441,7 +528,8 @@ router.get('/getDeckCardStats', async (req, res) => {
 
         res.json({
             success: true,
-            data: result
+            data: result,
+            mode: isWild ? 'wild' : 'standard'
         });
     } catch (error) {
         console.error('获取卡牌统计数据时出错:', error);
@@ -457,9 +545,10 @@ router.get('/getDeckCardStats', async (req, res) => {
 router.post('/fetchDeckDetails', async (req, res) => {
     try {
         const isTemp = req.query.temp === 'true';
-        const DeckDetailsModel = getModelForCollection('DeckDetails', deckDetailsSchema, isTemp);
-        const DeckModel = getModelForCollection('Deck', deckSchema, isTemp);
-        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp);
+        const isWild = req.query.wild === 'true';
+        const DeckDetailsModel = getModelForCollection('DeckDetails', deckDetailsSchema, isTemp, isWild);
+        const DeckModel = getModelForCollection('Decks', deckSchema, isTemp, isWild);
+        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp, isWild);
         
         const deckIds1 = await DeckModel.distinct('deckId');
         const deckIds2 = await RankDetailsModel.distinct('deckId');
@@ -475,7 +564,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
             const batchPromises = batch.map(async (deckId) => {
                 try {
                     console.log(`处理卡组 ${deckId} 的对战数据...`);
-                    const details = await deckDetailsService.getAllRanksDetails(deckId);
+                    const details = await deckDetailsService.getAllRanksDetails(deckId, isWild);
 
                     for (const [rank, opponents] of Object.entries(details)) {
                         allDetails.push({
@@ -497,8 +586,17 @@ router.post('/fetchDeckDetails', async (req, res) => {
         if (allDetails.length > 0) {
             const operations = allDetails.map(detail => ({
                 updateOne: {
-                    filter: { deckId: detail.deckId, rank: detail.rank },
-                    update: { $set: detail },
+                    filter: { 
+                        deckId: detail.deckId, 
+                        rank: detail.rank,
+                        mode: isWild ? 'wild' : 'standard'
+                    },
+                    update: { 
+                        $set: {
+                            ...detail,
+                            mode: isWild ? 'wild' : 'standard'
+                        }
+                    },
                     upsert: true
                 }
             }));
@@ -508,7 +606,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
 
         res.json({
             success: true,
-            message: `成功处理 ${uniqueDeckIds.length} 个卡组的对战��据到${isTemp ? '临时' : '主'}数据库`,
+            message: `成功处理 ${uniqueDeckIds.length} 个卡组的对战据到${isTemp ? '临时' : '主'}数据库`,
             stats: {
                 totalUniqueDeckIds: uniqueDeckIds.length,
                 fromDeckTable: deckIds1.length,
@@ -529,7 +627,8 @@ router.post('/fetchDeckDetails', async (req, res) => {
 router.get('/getDeckDetails', async (req, res) => {
     try {
         const { deckId } = req.query;
-        const DeckDetailsModel = getModelForCollection('DeckDetails', deckDetailsSchema, false);
+        const isWild = req.query.wild === 'true';
+        const DeckDetailsModel = getModelForCollection('DeckDetails', deckDetailsSchema, false, isWild);
 
         if (!deckId) {
             return res.status(400).json({
@@ -550,7 +649,8 @@ router.get('/getDeckDetails', async (req, res) => {
 
         res.json({
             success: true,
-            data: result
+            data: result,
+            mode: isWild ? 'wild' : 'standard'
         });
     } catch (error) {
         console.error('获取对战数据时出错:', error);
@@ -566,19 +666,33 @@ router.get('/getDeckDetails', async (req, res) => {
 router.post('/fetchRankDetails', async (req, res) => {
     try {
         const isTemp = req.query.temp === 'true';
-        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp);
-        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp);
+        const isWild = req.query.wild === 'true';
+        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp, isWild);
+        const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp, isWild);
         
         const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         const rankData = await RankDataModel.distinct('name');
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
-        const minGamesMap = {
+        
+        // 分别定义标准模式和狂野模式的 minGamesMap
+        const standardMinGamesMap = {
             'top_legend': [200, 100, 50],
             'top_10k': [400, 200, 100, 50],
             'diamond_4to1': [6400, 3200, 1600, 400, 100],
             'diamond_to_legend': [12800, 6400, 3200, 800, 200]
         };
-        const allDecks = [];  // 存储所有收集到的数
+
+        const wildMinGamesMap = {
+            'top_legend': [100, 50],
+            'top_10k': [200, 100, 50],
+            'diamond_4to1': [1600, 400, 100],
+            'diamond_to_legend': [3200, 800, 200]
+        };
+
+        // 根据模式选择对应的 minGamesMap
+        const minGamesMap = isWild ? wildMinGamesMap : standardMinGamesMap;
+
+        const allDecks = [];  // 存储所有收集到的数据
         const processedKeys = new Set();
 
         // 3. 限制并发请求数量
@@ -598,7 +712,8 @@ router.post('/fetchRankDetails', async (req, res) => {
                                 const params = new URLSearchParams({
                                     'player_deck_archetype[]': deckName,
                                     rank: rank,
-                                    min_games: minGames
+                                    min_games: minGames,
+                                    format: isWild ? '1' : '2'
                                 });
 
                                 const url = `https://www.hsguru.com/decks?${params.toString()}`;
@@ -653,15 +768,17 @@ router.post('/fetchRankDetails', async (req, res) => {
             // 批量写入所有新数据
             const operations = allDecks.map(deck => ({
                 updateOne: {
-                    filter: {
-                        deckId: deck.deckId,
+                    filter: { 
+                        deckId: deck.deckId, 
                         rank: deck.rank,
-                        name: deck.name
+                        name: deck.name,
+                        mode: isWild ? 'wild' : 'standard'
                     },
-                    update: {
+                    update: { 
                         $set: {
                             ...deck,
-                            updatedAt: new Date()
+                            updatedAt: new Date(),
+                            mode: isWild ? 'wild' : 'standard'
                         }
                     },
                     upsert: true
@@ -694,7 +811,8 @@ router.post('/fetchRankDetails', async (req, res) => {
 router.get('/getRankDetails', async (req, res) => {
     try {
         const { name } = req.query;
-        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, false);
+        const isWild = req.query.wild === 'true';
+        const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, false, isWild);
 
         if (!name) {
             return res.status(400).json({
@@ -751,7 +869,8 @@ router.get('/getRankDetails', async (req, res) => {
 
         res.json({
             success: true,
-            data: result
+            data: result,
+            mode: isWild ? 'wild' : 'standard'
         });
     } catch (error) {
         console.error('获取卡组详细数据时出错:', error);

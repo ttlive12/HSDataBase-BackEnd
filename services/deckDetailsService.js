@@ -10,7 +10,7 @@ class DeckDetailsService {
     /**
      * 构建URL
      */
-    buildUrl(deckId, rank) {
+    buildUrl(deckId, rank, isWild = false) {
         return `${this.baseUrl}/${deckId}?rank=${rank}`;
     }
 
@@ -41,9 +41,9 @@ class DeckDetailsService {
     /**
      * 获取卡组对战数据
      */
-    async getDeckDetails(deckId, rank) {
+    async getDeckDetails(deckId, rank, isWild = false) {
         try {
-            const url = this.buildUrl(deckId, rank);
+            const url = this.buildUrl(deckId, rank, isWild);
             const response = await axios.get(url);
             const $ = cheerio.load(response.data);
             const opponents = [];
@@ -80,12 +80,12 @@ class DeckDetailsService {
     /**
      * 获取所有等级的对战数据
      */
-    async getAllRanksDetails(deckId) {
+    async getAllRanksDetails(deckId, isWild = false) {
         const result = {};
         for (const rank of this.ranks) {
             try {
                 console.log(`获取卡组 ${deckId} 在 ${rank} 的对战数据...`);
-                result[rank] = await this.getDeckDetails(deckId, rank);
+                result[rank] = await this.getDeckDetails(deckId, rank, isWild);
             } catch (error) {
                 console.error(`获取 ${rank} 的对战数据失败:`, error);
                 result[rank] = [];

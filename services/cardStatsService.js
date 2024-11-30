@@ -35,9 +35,9 @@ class CardStatsService {
     /**
      * 获取卡牌统计数据
      */
-    async getCardStats(deckName, rank) {
+    async getCardStats(deckName, rank, isWild = false) {
         try {
-            const url = `${this.baseUrl}?archetype=${encodeURIComponent(deckName)}&rank=${rank}`;
+            const url = `${this.baseUrl}?archetype=${encodeURIComponent(deckName)}&rank=${rank}&format=${isWild ? '1' : '2'}`;
             const response = await axios.get(url);
             const $ = cheerio.load(response.data);
             const cards = [];
@@ -89,12 +89,12 @@ class CardStatsService {
     /**
      * 获取所有等级的卡牌统计数据
      */
-    async getAllRanksCardStats(deckName) {
+    async getAllRanksCardStats(deckName, isWild = false) {
         const result = {};
         for (const rank of this.ranks) {
             try {
                 console.log(`获取 ${deckName} 在 ${rank} 的卡牌统计数据...`);
-                result[rank] = await this.getCardStats(deckName, rank);
+                result[rank] = await this.getCardStats(deckName, rank, isWild);
             } catch (error) {
                 console.error(`获取 ${rank} 的卡牌统计失败:`, error);
                 result[rank] = [];

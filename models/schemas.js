@@ -12,6 +12,12 @@ const cardSchema = new mongoose.Schema({
 
 // Deck Schema
 const deckSchema = new mongoose.Schema({
+    mode: {
+        type: String,
+        required: true,
+        enum: ['standard', 'wild'],
+        default: 'standard'
+    },
     deckId: {
         type: String,
         required: true
@@ -66,6 +72,12 @@ const deckSchema = new mongoose.Schema({
 
 // RankData Schema
 const rankDataSchema = new mongoose.Schema({
+    mode: {
+        type: String,
+        required: true,
+        enum: ['standard', 'wild'],
+        default: 'standard'
+    },
     rank: {
         type: String,
         required: true,
@@ -103,6 +115,12 @@ const rankDataSchema = new mongoose.Schema({
 
 // CardStats Schema
 const cardStatsSchema = new mongoose.Schema({
+    mode: {
+        type: String,
+        required: true,
+        enum: ['standard', 'wild'],
+        default: 'standard'
+    },
     deckName: {
         type: String,
         required: true
@@ -129,6 +147,12 @@ const cardStatsSchema = new mongoose.Schema({
 
 // DeckDetails Schema
 const deckDetailsSchema = new mongoose.Schema({
+    mode: {
+        type: String,
+        required: true,
+        enum: ['standard', 'wild'],
+        default: 'standard'
+    },
     deckId: {
         type: String,
         required: true
@@ -151,6 +175,12 @@ const deckDetailsSchema = new mongoose.Schema({
 
 // RankDetails Schema
 const rankDetailsSchema = new mongoose.Schema({
+    mode: {
+        type: String,
+        required: true,
+        enum: ['standard', 'wild'],
+        default: 'standard'
+    },
     deckId: {
         type: String,
         required: true

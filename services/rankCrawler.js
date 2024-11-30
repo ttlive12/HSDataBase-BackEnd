@@ -12,8 +12,8 @@ class RankCrawlerService {
     /**
      * 构建特定rank的URL
      */
-    buildUrl(rank, minGames = null) {
-        let url = `${this.baseUrl}?rank=${rank}`;
+    buildUrl(rank, minGames = null, isWild = false) {
+        let url = `${this.baseUrl}?rank=${rank}&format=${isWild ? '1' : '2'}`;
         if (minGames) {
             url += `&min_games=${minGames}`;
         }
@@ -31,12 +31,12 @@ class RankCrawlerService {
     /**
      * 爬取指定rank的数据
      */
-    async crawlRankData(rank) {
+    async crawlRankData(rank, isWild = false) {
         try {
             let decks = [];
             
             // 先尝试不带 min_games 参数的请求
-            decks = await this.fetchRankDataWithUrl(rank);
+            decks = await this.fetchRankDataWithUrl(rank, null, isWild);
             
             // 如果数据量小于10，尝试使用不同的 min_games 值
             if (decks.length < 10) {
@@ -44,7 +44,7 @@ class RankCrawlerService {
                 
                 for (const minGames of this.minGamesLevels) {
                     console.log(`尝试使用 min_games=${minGames} 重新请求...`);
-                    decks = await this.fetchRankDataWithUrl(rank, minGames);
+                    decks = await this.fetchRankDataWithUrl(rank, minGames, isWild);
                     
                     if (decks.length >= 10) {
                         console.log(`使用 min_games=${minGames} 成功获取到足够数据(${decks.length}条)`);
@@ -63,8 +63,8 @@ class RankCrawlerService {
     /**
      * 使用指定URL获取数据
      */
-    async fetchRankDataWithUrl(rank, minGames = null) {
-        const url = this.buildUrl(rank, minGames);
+    async fetchRankDataWithUrl(rank, minGames = null, isWild = false) {
+        const url = this.buildUrl(rank, minGames, isWild);
         console.log(`请求URL: ${url}`);
         
         const response = await axios.get(url);
@@ -117,12 +117,12 @@ class RankCrawlerService {
     /**
      * 爬取所有rank的数据
      */
-    async crawlAllRanks() {
+    async crawlAllRanks(isWild = false) {
         const allDecks = [];
         for (const rank of this.ranks) {
             try {
                 console.log(`开始爬取 ${rank} 的数据...`);
-                const decks = await this.crawlRankData(rank);
+                const decks = await this.crawlRankData(rank, isWild);
                 allDecks.push(...decks);
                 console.log(`成功爬取 ${rank} 的 ${decks.length} 条数据`);
             } catch (error) {
