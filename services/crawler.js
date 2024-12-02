@@ -7,21 +7,36 @@ class CrawlerService {
     constructor() {
         this.baseUrl = 'https://www.hsguru.com/decks';
         this.ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
-        this.minGamesLevels = [1600, 800, 400, 200, 50];
+        this.minGamesLevels = {
+            'top_legend': [200, 100, 50],
+            'top_10k': [400, 200, 100, 50],
+            'diamond_4to1': [6400, 3200, 1600, 400, 100],
+            'diamond_to_legend': [12800, 6400, 3200, 800, 200]
+        };
+        // 过去一天数据的固定 min_games 值
+        this.pastDayMinGames = {
+            'top_legend': 50,
+            'top_10k': 100,
+            'diamond_4to1': 100,
+            'diamond_to_legend': 200
+        };
     }
 
     /**
      * 构建特定rank的URL
-     * @param {string} rank 
-     * @param {number} minGames 
-     * @param {boolean} isWild 
-     * @returns {string}
      */
-    buildUrl(rank, minGames = null, isWild = false) {
+    buildUrl(rank, options = {}) {
+        const { minGames = null, isWild = false, isPastDay = false } = options;
         let url = `${this.baseUrl}?rank=${rank}&format=${isWild ? '1' : '2'}`;
+        
         if (minGames) {
             url += `&min_games=${minGames}`;
         }
+        
+        if (isPastDay) {
+            url += `&period=past_day`;
+        }
+        
         return url;
     }
 
@@ -97,48 +112,45 @@ class CrawlerService {
 
     /**
      * 爬取指定rank的卡组数据
-     * @param {string} urlOrRank 
-     * @param {boolean} isWild 
-     * @returns {Promise<Array>}
      */
-    async crawlDecksForRank(urlOrRank, isWild = false) {
+    async crawlDecksForRank(urlOrRank, options = {}) {
         try {
-            const url = urlOrRank.startsWith('http') ? 
-                urlOrRank : 
-                this.buildUrl(urlOrRank, null, isWild);
+            const { isWild = false, isPastDay = false } = options;
             
-            const response = await axios.get(url);
-            const $ = cheerio.load(response.data);
-            
-            // 从URL中提取rank参数
-            const rankMatch = url.match(/[?&]rank=([^&]+)/);
-            const rank = rankMatch ? rankMatch[1] : urlOrRank;
+            if (urlOrRank.startsWith('http')) {
+                const response = await axios.get(urlOrRank);
+                const $ = cheerio.load(response.data);
+                return await this.extractDecksFromHtml($, urlOrRank);
+            }
 
-            let decks = await this.extractDecksFromHtml($, rank);
-
-            // 如果数据量小于10且是基础URL（不包含min_games参数），尝试使用不同的min_games值
-            if (decks.length < 10 && !url.includes('min_games=')) {
-                console.log(`${rank} 获取到的数据量不足(${decks.length})，开始尝试降级请求...`);
-                
-                for (const minGames of this.minGamesLevels) {
-                    console.log(`尝试使用 min_games=${minGames} 重新请求...`);
-                    const newUrl = this.buildUrl(rank, minGames, isWild);
-                    const newResponse = await axios.get(newUrl);
-                    const new$ = cheerio.load(newResponse.data);
-                    decks = await this.extractDecksFromHtml(new$, rank);
+            if (isPastDay) {
+                // 过去一天的数据使用固定的 min_games
+                const url = this.buildUrl(urlOrRank, {
+                    minGames: this.pastDayMinGames[urlOrRank],
+                    isWild,
+                    isPastDay: true
+                });
+                const response = await axios.get(url);
+                const $ = cheerio.load(response.data);
+                return await this.extractDecksFromHtml($, urlOrRank);
+            } else {
+                // 使用原有的降级逻辑
+                let decks = [];
+                for (const minGames of this.minGamesLevels[urlOrRank]) {
+                    const url = this.buildUrl(urlOrRank, { minGames, isWild });
+                    console.log(`尝试使用 min_games=${minGames} 请求...`);
+                    
+                    const response = await axios.get(url);
+                    const $ = cheerio.load(response.data);
+                    decks = await this.extractDecksFromHtml($, urlOrRank);
                     
                     if (decks.length >= 10) {
                         console.log(`使用 min_games=${minGames} 成功获取到足够数据(${decks.length}条)`);
                         break;
                     }
-                    
-                    if (minGames === 50) {
-                        console.log(`已降至最低等级(min_games=50)，返回当前结果(${decks.length}条)`);
-                    }
                 }
+                return decks;
             }
-
-            return decks;
         } catch (error) {
             console.error(`爬取数据时出错:`, error);
             throw error;
@@ -195,7 +207,7 @@ class CrawlerService {
                     decks.push(deckData);
                 }
             } catch (error) {
-                console.warn(`处理${rank}中的卡组时出错:`, error);
+                console.warn(`处理${rank}中的卡组出错:`, error);
             }
         }
         
@@ -203,16 +215,15 @@ class CrawlerService {
     }
 
     /**
-     * 爬取所有rank���卡组数据
-     * @param {boolean} isWild 
-     * @returns {Promise<Array>}
+     * 爬取所有rank卡组数据
      */
-    async crawlAllDecks(isWild = false) {
+    async crawlAllDecks(options = {}) {
+        const { isWild = false, isPastDay = false } = options;
         const allDecks = [];
         for (const rank of this.ranks) {
             try {
-                console.log(`开始爬取 ${rank} 的数据...`);
-                const decks = await this.crawlDecksForRank(rank, isWild);
+                console.log(`开始爬取 ${rank} 的${isPastDay ? '过去一天' : ''}数据...`);
+                const decks = await this.crawlDecksForRank(rank, { isWild, isPastDay });
                 allDecks.push(...decks);
                 console.log(`成功爬取 ${rank} 的 ${decks.length} 条数据`);
             } catch (error) {

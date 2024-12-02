@@ -67,6 +67,11 @@ const deckSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now
+    },
+    isPastDay: {
+        type: Boolean,
+        required: true,
+        default: false
     }
 });
 

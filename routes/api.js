@@ -21,15 +21,26 @@ router.post('/fetchDecksData', async (req, res) => {
         const isWild = req.query.wild === 'true';
         const DeckModel = getModelForCollection('Decks', deckSchema, isTemp, isWild);
         
-        const decks = await crawlerService.crawlAllDecks(isWild);
+        // 爬取常规数据
+        const decks = await crawlerService.crawlAllDecks({ isWild });
+        
+        // 爬取过去一天的数据
+        const pastDayDecks = await crawlerService.crawlAllDecks({ isWild, isPastDay: true });
 
-        if (decks && decks.length > 0) {
-            const operations = decks.map(deck => ({
+        if ((decks && decks.length > 0) || (pastDayDecks && pastDayDecks.length > 0)) {
+            // 合并所有数据并添加标记
+            const allDecks = [
+                ...decks.map(deck => ({ ...deck, isPastDay: false })),
+                ...pastDayDecks.map(deck => ({ ...deck, isPastDay: true }))
+            ];
+
+            const operations = allDecks.map(deck => ({
                 updateOne: {
                     filter: { 
                         deckId: deck.deckId, 
                         rank: deck.rank,
-                        mode: isWild ? 'wild' : 'standard'
+                        mode: isWild ? 'wild' : 'standard',
+                        isPastDay: deck.isPastDay
                     },
                     update: { 
                         $set: {
@@ -45,7 +56,7 @@ router.post('/fetchDecksData', async (req, res) => {
 
             res.json({
                 success: true,
-                message: `成功爬取并更新 ${decks.length} 个卡组数据到${isTemp ? '临时' : '主'}数据库`
+                message: `成功爬取并更新 ${allDecks.length} 个卡组数据到${isTemp ? '临时' : '主'}数据库`
             });
         } else {
             res.status(400).json({
@@ -67,6 +78,7 @@ router.post('/fetchDecksData', async (req, res) => {
 router.get('/getDecksData', async (req, res) => {
     try {
         const isWild = req.query.wild === 'true';
+        const isPastDay = req.query.period === 'past_day';
         const DeckModel = getModelForCollection('Decks', deckSchema, false, isWild);
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
         const result = {};
@@ -76,6 +88,7 @@ router.get('/getDecksData', async (req, res) => {
                 {
                     rank,
                     mode: isWild ? 'wild' : 'standard',
+                    isPastDay: isPastDay,  // 根据参数筛选数据
                     order: { $exists: true },
                     cards: {
                         $exists: true,
@@ -134,7 +147,8 @@ router.get('/getDecksData', async (req, res) => {
         res.json({
             success: true,
             data: result,
-            mode: isWild ? 'wild' : 'standard'
+            mode: isWild ? 'wild' : 'standard',
+            period: isPastDay ? 'past_day' : 'all_time'
         });
     } catch (error) {
         console.error('获取卡组数据时出错:', error);
