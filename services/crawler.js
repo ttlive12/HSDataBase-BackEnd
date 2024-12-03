@@ -120,7 +120,9 @@ class CrawlerService {
             if (urlOrRank.startsWith('http')) {
                 const response = await axios.get(urlOrRank);
                 const $ = cheerio.load(response.data);
-                return await this.extractDecksFromHtml($, urlOrRank);
+                const rankMatch = urlOrRank.match(/[?&]rank=([^&]+)/);
+                const rank = rankMatch ? rankMatch[1] : urlOrRank;
+                return await this.extractDecksFromHtml($, rank);
             }
 
             if (isPastDay) {
