@@ -76,28 +76,31 @@ class ScheduledTasks {
         }
     }
 
-    async executeAllTasks() {
+    async executeAllTasks(mode = 'all') {
         const startTime = new Date();
         try {
             const now = new Date();
             console.log(`开始执行定时任务... 当前北京时间: ${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
 
             try {
-                // 先清理可能存在的临时集合
-                await cleanupTempCollections(false); // 清理标准模式临时集合
-                await cleanupTempCollections(true);  // 清理狂野模式临时集合
 
-                // 先执行标准模式的任务
-                console.log('开始执行标准模式任务...');
-                await this.executeTasksForMode(false);
-                console.log('标准模式任务执行完成');
+                if (mode === 'all' || mode === 'standard') {
+                    await cleanupTempCollections(false); // 清理标准模式临时集合
+                    // 执行标准模式的任务
+                    console.log('开始执行标准模式任务...');
+                    await this.executeTasksForMode(false);
+                    console.log('标准模式任务执行完成');
+                    await delay(10000); // 等待10秒
+                }
 
-                await delay(10000); // 等待10秒
-
-                // 执行狂野模式的任务
-                console.log('开始执行狂野模式任务...');
-                await this.executeTasksForMode(true);
-                console.log('狂野模式任务执行完成');
+                if (mode === 'all' || mode === 'wild') {
+                    await cleanupTempCollections(true);  // 清理狂野模式临时集合
+                    // 执行狂野模式的任务
+                    console.log('开始执行狂野模式任务...');
+                    await this.executeTasksForMode(true);
+                    console.log('狂野模式任务执行完成');
+                    await delay(10000); // 等待10秒
+                }
 
                 const endTime = new Date();
                 const duration = (endTime - startTime) / 1000;
@@ -135,9 +138,9 @@ class ScheduledTasks {
         console.log(`定时任务已启动，将在每天北京时间 04:30 执行。当前北京时间: ${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
     }
 
-    async runTasksManually() {
-        console.log('手动执行所有任务...');
-        await this.executeAllTasks();
+    async runTasksManually(mode = 'all') {
+        console.log(`手动执行所有任务... 模式:${mode}`);
+        await this.executeAllTasks(mode);
     }
 }
 

@@ -898,13 +898,14 @@ router.get('/getRankDetails', async (req, res) => {
 
 // 测试定时任务
 router.post('/testScheduledUpdate', async (req, res) => {
+    const { mode } = req.query;
     try {
         // 启动测试任务
         const scheduledTasks = require('../services/scheduledTasks');
         console.log('开始测试定时更新任务...');
 
         // 异步执行任务，不等待完成
-        scheduledTasks.executeAllTasks().then(() => {
+        scheduledTasks.runTasksManually(mode || 'all').then(() => {
             console.log('测试定时更新任务完成');
         }).catch(error => {
             console.error('测试定时更新任务失败:', error);
