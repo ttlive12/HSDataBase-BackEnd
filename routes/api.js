@@ -20,10 +20,10 @@ router.post('/fetchDecksData', async (req, res) => {
         const isTemp = req.query.temp === 'true';
         const isWild = req.query.wild === 'true';
         const DeckModel = getModelForCollection('Decks', deckSchema, isTemp, isWild);
-        
+
         // 爬取常规数据
         const decks = await crawlerService.crawlAllDecks({ isWild });
-        
+
         // 爬取过去一天的数据
         const pastDayDecks = await crawlerService.crawlAllDecks({ isWild, isPastDay: true });
 
@@ -36,13 +36,13 @@ router.post('/fetchDecksData', async (req, res) => {
 
             const operations = allDecks.map(deck => ({
                 updateOne: {
-                    filter: { 
-                        deckId: deck.deckId, 
+                    filter: {
+                        deckId: deck.deckId,
                         rank: deck.rank,
                         mode: isWild ? 'wild' : 'standard',
                         isPastDay: deck.isPastDay
                     },
-                    update: { 
+                    update: {
                         $set: {
                             ...deck,
                             mode: isWild ? 'wild' : 'standard'
@@ -129,7 +129,7 @@ router.get('/getDecksData', async (req, res) => {
                 deck.zhName && // 确保 zhName 存在
                 deck.legendaryCardNum !== undefined
             );
-// 如果发现没有 zhName 的数据，打印日志以便调试
+            // 如果发现没有 zhName 的数据，打印日志以便调试
             const invalidDecks = decks.filter(deck => !deck.zhName);
             if (invalidDecks.length > 0) {
                 console.warn(`发现 ${invalidDecks.length} 个缺失 zhName 的卡组:`,
@@ -164,7 +164,6 @@ router.get('/getDecksData', async (req, res) => {
 router.post('/repairDecksData', async (req, res) => {
     try {
         const isTemp = req.query.temp === 'true';
-        const isWild = req.query.wild === 'true';
 
         // 获取标准模式和狂野模式的 Model
         const standardModels = {
@@ -351,12 +350,12 @@ router.post('/fetchRanksData', async (req, res) => {
         if (filteredDecks.length > 0) {
             const operations = filteredDecks.map(deck => ({
                 updateOne: {
-                    filter: { 
-                        rank: deck.rank, 
+                    filter: {
+                        rank: deck.rank,
                         name: deck.name,
                         mode: isWild ? 'wild' : 'standard'
                     },
-                    update: { 
+                    update: {
                         $set: {
                             ...deck,
                             mode: isWild ? 'wild' : 'standard'
@@ -401,7 +400,7 @@ router.get('/getRanksData', async (req, res) => {
 
         for (const rank of ranks) {
             const decks = await RankDataModel.find(
-                { 
+                {
                     rank,
                     mode: isWild ? 'wild' : 'standard'
                 },
@@ -442,7 +441,7 @@ router.post('/fetchDeckCardStats', async (req, res) => {
         const isWild = req.query.wild === 'true';
         const CardStatsModel = getModelForCollection('CardStats', cardStatsSchema, isTemp, isWild);
         const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp, isWild);
-        
+
         // 获取所有卡组名称
         console.log('获取卡组名称列表...');
         const rankData = await RankDataModel.find({}, { name: 1, _id: 0 });
@@ -475,15 +474,15 @@ router.post('/fetchDeckCardStats', async (req, res) => {
         // 所有数据收集完成后，一次性更新数据库
         if (allStats.length > 0) {
             console.log(`开始更新数据库，共有 ${allStats.length} 条数据...`);
-            
+
             const operations = allStats.map(stat => ({
                 updateOne: {
-                    filter: { 
-                        deckName: stat.deckName, 
+                    filter: {
+                        deckName: stat.deckName,
                         rank: stat.rank,
                         mode: isWild ? 'wild' : 'standard'
                     },
-                    update: { 
+                    update: {
                         $set: {
                             ...stat,
                             mode: isWild ? 'wild' : 'standard'
@@ -529,7 +528,7 @@ router.get('/getDeckCardStats', async (req, res) => {
 
         const result = {};
         const stats = await CardStatsModel.find(
-            { 
+            {
                 deckName,
                 mode: isWild ? 'wild' : 'standard'
             },
@@ -563,7 +562,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
         const DeckDetailsModel = getModelForCollection('DeckDetails', deckDetailsSchema, isTemp, isWild);
         const DeckModel = getModelForCollection('Decks', deckSchema, isTemp, isWild);
         const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp, isWild);
-        
+
         const deckIds1 = await DeckModel.distinct('deckId');
         const deckIds2 = await RankDetailsModel.distinct('deckId');
         const uniqueDeckIds = [...new Set([...deckIds1, ...deckIds2])];
@@ -573,7 +572,7 @@ router.post('/fetchDeckDetails', async (req, res) => {
         // 2. 分批获取所有数据
         for (let i = 0; i < uniqueDeckIds.length; i += concurrencyLimit) {
             const batch = uniqueDeckIds.slice(i, i + concurrencyLimit);
-            console.log(`处理卡组批次 ${Math.floor(i/concurrencyLimit) + 1}/${Math.ceil(uniqueDeckIds.length/concurrencyLimit)}...`);
+            console.log(`处理卡组批次 ${Math.floor(i / concurrencyLimit) + 1}/${Math.ceil(uniqueDeckIds.length / concurrencyLimit)}...`);
 
             const batchPromises = batch.map(async (deckId) => {
                 try {
@@ -600,12 +599,12 @@ router.post('/fetchDeckDetails', async (req, res) => {
         if (allDetails.length > 0) {
             const operations = allDetails.map(detail => ({
                 updateOne: {
-                    filter: { 
-                        deckId: detail.deckId, 
+                    filter: {
+                        deckId: detail.deckId,
                         rank: detail.rank,
                         mode: isWild ? 'wild' : 'standard'
                     },
-                    update: { 
+                    update: {
                         $set: {
                             ...detail,
                             mode: isWild ? 'wild' : 'standard'
@@ -683,11 +682,11 @@ router.post('/fetchRankDetails', async (req, res) => {
         const isWild = req.query.wild === 'true';
         const RankDetailsModel = getModelForCollection('RankDetails', rankDetailsSchema, isTemp, isWild);
         const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, isTemp, isWild);
-        
+
         const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         const rankData = await RankDataModel.distinct('name');
         const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
-        
+
         // 分别定义标准模式和狂野模式的 minGamesMap
         const standardMinGamesMap = {
             'top_legend': [200, 100, 50],
@@ -713,7 +712,7 @@ router.post('/fetchRankDetails', async (req, res) => {
         const concurrencyLimit = 2;
         for (let i = 0; i < rankData.length; i += concurrencyLimit) {
             const batch = rankData.slice(i, i + concurrencyLimit);
-            console.log(`处理卡组批次 ${Math.floor(i/concurrencyLimit) + 1}/${Math.ceil(rankData.length/concurrencyLimit)}...`);
+            console.log(`处理卡组批次 ${Math.floor(i / concurrencyLimit) + 1}/${Math.ceil(rankData.length / concurrencyLimit)}...`);
 
             await Promise.all(batch.map(async (deckName) => {
                 try {
@@ -740,8 +739,9 @@ router.post('/fetchRankDetails', async (req, res) => {
                                             setTimeout(() => reject(new Error('请求超时')), 30000)
                                         )
                                     ]);
-
-                                    if (decks && decks.length > 0) {
+                                    
+                                    const seq = minGamesMap[rank];
+                                    if (decks && (decks.length >= 2 || seq[seq.length - 1] === minGames)) {
                                         decks.forEach(deck => {
                                             deck.name = deckName;  // 使用原始名称
                                             const key = `${deck.deckId}-${deck.rank}-${deck.name}`;
@@ -774,7 +774,7 @@ router.post('/fetchRankDetails', async (req, res) => {
         // 所有数据收集完成后，一次性更新数据库
         if (allDecks.length > 0) {
             console.log(`开始更新数据库，共有 ${allDecks.length} 条数据...`);
-            
+
             // 先清空数据库
             await RankDetailsModel.deleteMany({});
             console.log('已清空原有卡组详细数据');
@@ -782,13 +782,13 @@ router.post('/fetchRankDetails', async (req, res) => {
             // 批量写入所有新数据
             const operations = allDecks.map(deck => ({
                 updateOne: {
-                    filter: { 
-                        deckId: deck.deckId, 
+                    filter: {
+                        deckId: deck.deckId,
                         rank: deck.rank,
                         name: deck.name,
                         mode: isWild ? 'wild' : 'standard'
                     },
-                    update: { 
+                    update: {
                         $set: {
                             ...deck,
                             updatedAt: new Date(),
