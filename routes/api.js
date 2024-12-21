@@ -741,7 +741,7 @@ router.post('/fetchRankDetails', async (req, res) => {
                                     ]);
                                     
                                     const seq = minGamesMap[rank];
-                                    if (decks && (decks.length >= 2 || seq[seq.length - 1] === minGames)) {
+                                    if (decks && (decks.length >= 3 || seq[seq.length - 1] === minGames)) {
                                         decks.forEach(deck => {
                                             deck.name = deckName;  // 使用原始名称
                                             const key = `${deck.deckId}-${deck.rank}-${deck.name}`;
