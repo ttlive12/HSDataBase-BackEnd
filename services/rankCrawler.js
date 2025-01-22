@@ -34,18 +34,18 @@ class RankCrawlerService {
     async crawlRankData(rank, isWild = false) {
         try {
             let decks = [];
-            
+
             // 先尝试不带 min_games 参数的请求
             decks = await this.fetchRankDataWithUrl(rank, null, isWild);
-            
+
             // 如果数据量小于10，尝试使用不同的 min_games 值
             if (decks.length < 10) {
                 console.log(`${rank} 获取到的数据量不足(${decks.length})，开始尝试降级请求...`);
-                
+
                 for (const minGames of this.minGamesLevels) {
                     console.log(`尝试使用 min_games=${minGames} 重新请求...`);
                     decks = await this.fetchRankDataWithUrl(rank, minGames, isWild);
-                    
+
                     if (decks.length >= 10) {
                         console.log(`使用 min_games=${minGames} 成功获取到足够数据(${decks.length}条)`);
                         break;
@@ -66,7 +66,7 @@ class RankCrawlerService {
     async fetchRankDataWithUrl(rank, minGames = null, isWild = false) {
         const url = this.buildUrl(rank, minGames, isWild);
         console.log(`请求URL: ${url}`);
-        
+
         const response = await axios.get(url);
         const $ = cheerio.load(response.data);
         const decks = [];
@@ -77,9 +77,9 @@ class RankCrawlerService {
             try {
                 const $row = $(element);
                 const $nameCell = $row.find('td:first-child');
-                const name = $nameCell.find('a.basic-black-text').text().trim();
+                const name = this.cleanString($nameCell.find('a.basic-black-text').text());
                 const classType = this.extractClass($nameCell.attr('class'));
-                
+
                 const winrateText = $row.find('td:nth-child(2) .basic-black-text').text().trim();
                 const winrate = parseFloat(winrateText);
 
@@ -131,6 +131,27 @@ class RankCrawlerService {
         }
         return allDecks;
     }
+
+    cleanString(input) {
+        // 使用正则表达式去除字符串两端的所有空白字符
+        let trimmed = input.replace(/^\s+|\s+$/g, '');
+
+        // 检查原始字符串是否在去除两端空白字符后，末尾有一个空格
+        // 具体来说，检查去除后最后一个字符是否是空格
+        // 这里通过捕获原始字符串中除去两端后的末尾是否有空格
+        const regex = /^\s*(.*?)(\s?)\s*$/s; // s 标志允许 . 匹配换行符
+        const match = input.match(regex);
+
+        if (match) {
+            const hasTrailingSpace = (match[2] === ' ');
+            if (hasTrailingSpace && !trimmed.endsWith(' ')) {
+                trimmed += ' ';
+            }
+        }
+
+        return trimmed;
+    }
+
 }
 
 module.exports = new RankCrawlerService(); 
