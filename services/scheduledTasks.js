@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const axios = require('axios');
+const cardService = require('./cardService');
 const { swapCollections, cleanupTempCollections } = require('../models/databaseLock');
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -81,7 +82,7 @@ class ScheduledTasks {
         try {
             const now = new Date();
             console.log(`开始执行定时任务... 当前北京时间: ${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
-
+            await cardService.initializeCards();
             try {
 
                 if (mode === 'all' || mode === 'standard') {
