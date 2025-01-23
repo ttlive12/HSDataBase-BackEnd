@@ -11,7 +11,8 @@ const {
     rankDataSchema,
     cardStatsSchema,
     deckDetailsSchema,
-    rankDetailsSchema
+    rankDetailsSchema,
+    configSchema
 } = require('../models/schemas');
 
 // POST /fetchDecksData - 爬取并存储所有rank的卡组数据
@@ -925,5 +926,42 @@ router.post('/testScheduledUpdate', async (req, res) => {
         });
     }
 });
+
+// GET /getConfigData - Retrieve a config value by key
+router.get('/getConfigData', async (req, res) => {
+    try {
+        const { key } = req.query;
+
+        if (!key) {
+            return res.status(400).json({
+                success: false,
+                message: 'Config key is required'
+            });
+        }
+
+        const ConfigModel = getModelForCollection('Configs', configSchema);
+        
+        const configItem = await ConfigModel.findOne({ key });
+
+        if (!configItem) {
+            return res.json({
+                success: true,
+                value: ''
+            });
+        }
+
+        res.json({
+            success: true,
+            value: configItem.value
+        });
+    } catch (error) {
+        console.error('Error retrieving config data:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve config data'
+        });
+    }
+});
+
 
 module.exports = router; 
