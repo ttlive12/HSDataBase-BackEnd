@@ -873,13 +873,14 @@ router.get('/getRankDetails', async (req, res) => {
         }
 
         // 如所有rank都没有找到数据
-        const totalDecks = Object.values(result).flat().length;
-        if (totalDecks === 0) {
-            return res.status(404).json({
-                success: false,
-                message: `未找到卡组 "${name}" 的数据`
-            });
-        }
+        // const totalDecks = Object.values(result).flat().length;
+        // if (totalDecks === 0) {
+        //     return res.status(404).json({
+        //         success: false,
+        //         data: {},
+        //         message: `未找到卡组 "${name}" 的数据`
+        //     });
+        // }
 
         res.json({
             success: true,
