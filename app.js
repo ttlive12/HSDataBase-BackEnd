@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const morgan = require('morgan');
 const apiRoutes = require('./routes/api');
+const { setupSecurity } = require('./utils/securityMiddleware');
 // const { rebuildIndexes } = require('./models/deck');
 // const { rebuildRankDetailsIndexes } = require('./models/rankDetails');
 const cardService = require('./services/cardService');
@@ -12,7 +13,7 @@ const app = express();
 
 // 连接 MongoDB 并初始化数据
 // mongoose.connect('mongodb://root:pgjpw7t4@hsdatabase-test-mongodb.ns-7i3dklve.svc:27017')
-mongoose.connect('mongodb://root:pgjpw7t4@hsdatabase-mongodb.ns-7i3dklve.svc:27017')
+mongoose.connect('mongodb://root:rfjlptbk@cardmaster-mongodb.ns-ggr87o43.svc:27017')
     .then(async () => {
         console.log('MongoDB 连接成功');
         // await rebuildIndexes();
@@ -25,9 +26,15 @@ mongoose.connect('mongodb://root:pgjpw7t4@hsdatabase-mongodb.ns-7i3dklve.svc:270
     })
     .catch(err => console.error('MongoDB 连接失败:', err));
 
+// 启用信任代理设置，允许app使用X-Forwarded-For头部识别客户端IP
+app.set('trust proxy', true);
+
 // 中间件配置
 app.use(express.json());
 app.use(morgan('dev'));
+
+// 应用安全中间件
+setupSecurity(app);
 
 // 路由配置
 app.use('/', apiRoutes);
