@@ -81,7 +81,7 @@ router.get('/getDecksData', async (req, res) => {
         const isWild = req.query.wild === 'true';
         const isPastDay = req.query.period === 'past_day';
         const DeckModel = getModelForCollection('Decks', deckSchema, false, isWild);
-        const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
+        const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend'];
         const result = {};
 
         for (const rank of ranks) {
@@ -396,7 +396,7 @@ router.get('/getRanksData', async (req, res) => {
     try {
         const isWild = req.query.wild === 'true';
         const RankDataModel = getModelForCollection('RankDatas', rankDataSchema, false, isWild);
-        const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
+        const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend'];
         const result = {};
 
         for (const rank of ranks) {
@@ -686,19 +686,19 @@ router.post('/fetchRankDetails', async (req, res) => {
 
         const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         const rankData = await RankDataModel.distinct('name');
-        const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
+        const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend'];
 
         // 分别定义标准模式和狂野模式的 minGamesMap
         const standardMinGamesMap = {
             'top_legend': [200, 100, 50],
-            'top_10k': [400, 200, 100, 50],
+            'top_5k': [400, 200, 100, 50],
             'diamond_4to1': [6400, 3200, 1600, 400, 100],
             'diamond_to_legend': [12800, 6400, 3200, 800, 200]
         };
 
         const wildMinGamesMap = {
             'top_legend': [100, 50],
-            'top_10k': [200, 100, 50],
+            'top_5k': [200, 100, 50],
             'diamond_4to1': [1600, 400, 100],
             'diamond_to_legend': [3200, 800, 200]
         };
@@ -836,7 +836,7 @@ router.get('/getRankDetails', async (req, res) => {
             });
         }
 
-        const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
+        const ranks = ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend'];
         const result = {};
 
         for (const rank of ranks) {

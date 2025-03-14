@@ -19,7 +19,7 @@ const deckSchema = new mongoose.Schema({
     rank: {
         type: String,
         required: true,
-        enum: ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend']
+        enum: ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend']
     },
     order: {
         type: Number,

@@ -12,8 +12,8 @@ const scheduledTasks = require('./services/scheduledTasks');
 const app = express();
 
 // 连接 MongoDB 并初始化数据
-// mongoose.connect('mongodb://root:pgjpw7t4@hsdatabase-test-mongodb.ns-7i3dklve.svc:27017')
-mongoose.connect('mongodb://root:rfjlptbk@cardmaster-mongodb.ns-ggr87o43.svc:27017')
+mongoose.connect('mongodb://root:v4mmdtt7@cardmaster-test-mongodb.ns-ggr87o43.svc:27017')
+// mongoose.connect('mongodb://root:rfjlptbk@cardmaster-mongodb.ns-ggr87o43.svc:27017')
     .then(async () => {
         console.log('MongoDB 连接成功');
         // await rebuildIndexes();

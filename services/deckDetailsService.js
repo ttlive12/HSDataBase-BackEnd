@@ -4,7 +4,7 @@ const cheerio = require('cheerio');
 class DeckDetailsService {
     constructor() {
         this.baseUrl = 'https://www.hsguru.com/deck';
-        this.ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
+        this.ranks = ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend'];
     }
 
     /**

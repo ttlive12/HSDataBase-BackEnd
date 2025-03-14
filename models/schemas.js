@@ -25,7 +25,7 @@ const deckSchema = new mongoose.Schema({
     rank: {
         type: String,
         required: true,
-        enum: ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend']
+        enum: ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend']
     },
     order: {
         type: Number,
@@ -86,7 +86,7 @@ const rankDataSchema = new mongoose.Schema({
     rank: {
         type: String,
         required: true,
-        enum: ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend']
+        enum: ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend']
     },
     name: {
         type: String,
@@ -133,7 +133,7 @@ const cardStatsSchema = new mongoose.Schema({
     rank: {
         type: String,
         required: true,
-        enum: ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend']
+        enum: ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend']
     },
     cards: [{
         dbfid: String,
@@ -165,7 +165,7 @@ const deckDetailsSchema = new mongoose.Schema({
     rank: {
         type: String,
         required: true,
-        enum: ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend']
+        enum: ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend']
     },
     opponents: [{
         class: String,
@@ -197,7 +197,7 @@ const rankDetailsSchema = new mongoose.Schema({
     rank: {
         type: String,
         required: true,
-        enum: ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend']
+        enum: ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend']
     },
     order: {
         type: Number,

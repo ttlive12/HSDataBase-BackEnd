@@ -6,17 +6,17 @@ const deckNameService = require('./deckNameService');
 class CrawlerService {
     constructor() {
         this.baseUrl = 'https://www.hsguru.com/decks';
-        this.ranks = ['diamond_4to1', 'diamond_to_legend', 'top_10k', 'top_legend'];
+        this.ranks = ['diamond_4to1', 'diamond_to_legend', 'top_5k', 'top_legend'];
         this.minGamesLevels = {
             'top_legend': [200, 100, 50],
-            'top_10k': [400, 200, 100, 50],
+            'top_5k': [400, 200, 100, 50],
             'diamond_4to1': [6400, 3200, 1600, 400, 100],
             'diamond_to_legend': [12800, 6400, 3200, 800, 200]
         };
         // 过去一天数据的固定 min_games 值
         this.pastDayMinGames = {
             'top_legend': 50,
-            'top_10k': 100,
+            'top_5k': 100,
             'diamond_4to1': 100,
             'diamond_to_legend': 200
         };
